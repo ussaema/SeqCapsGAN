@@ -12,7 +12,7 @@ Then, we train the models using [SentiCap Dataset](http://cm.cecs.anu.edu.au/pos
 
 ### TODO
 - [x] Build LSTM Generator
-- [x] Incorporate emotions to the Generator
+- [x] Incorporate emotions into the Generator
 - [x] Generator Logger
 - [x] Build Conventional Discriminator
 - [x] Discriminator Logger

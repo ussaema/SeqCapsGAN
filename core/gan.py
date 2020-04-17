@@ -29,10 +29,10 @@ class GAN(object):
         rewards = []
         for i in range(rollout_num):
             # given_num between 1 to sequence_length - 1 for a part completed sentence
+            feed_dict = {self.generator.features: features_batch, self.generator.emotions: emotions_batch}
+            generated_captions = sess.run(self.generator.generated_captions, feed_dict)
             for seq_length in range(1, self.generator.T):
-                feed_dict = {self.generator.features: features_batch, self.generator.emotions: emotions_batch, self.generator.seq_length: seq_length}
-                generated_captions = sess.run(self.generator.generated_captions, feed_dict)
-                feed_dict = {self.discriminator.input_x: generated_captions, self.discriminator.dropout_keep_prob: 1.0}
+                feed_dict = {self.discriminator.input_x: np.column_stack((generated_captions[:,:seq_length], np.zeros((generated_captions.shape[0], self.generator.T-seq_length), dtype=np.int64))) , self.discriminator.dropout_keep_prob: 1.0}
                 ypred_for_auc = sess.run(self.discriminator.ypred_for_auc, feed_dict)
                 ypred = np.array([item[1] for item in ypred_for_auc])
                 if i == 0:
@@ -41,7 +41,7 @@ class GAN(object):
                     rewards[seq_length - 1] += ypred
 
             # the last token reward
-            feed_dict = {self.discriminator.input_x: captions_batch, self.discriminator.dropout_keep_prob: 1.0}
+            feed_dict = {self.discriminator.input_x: captions_batch[:,:self.generator.T], self.discriminator.dropout_keep_prob: 1.0}
             ypred_for_auc = sess.run(self.discriminator.ypred_for_auc, feed_dict)
             ypred = np.array([item[1] for item in ypred_for_auc])
             if i == 0:
@@ -53,8 +53,8 @@ class GAN(object):
         rewards = np.transpose(np.array(rewards)) / (1.0 * rollout_num)  # batch_size x seq_length
         return rewards
 
-    def train(self, data, val_data, n_epochs=10, batch_size=100, dis_batch_size=30, rollout_num=10, validation=False, gen_scores=['Bleu_1','Bleu_2','Bleu_3','Bleu_4', 'ROUGE_L', 'CIDEr'], log_every=100, save_every=1, log_path='./log/', model_path='./model/', pretrained_model= None):
-
+    def train(self, sess, data, val_data, n_epochs=10, batch_size=100, rollout_num=10, validation=False, gen_scores=['Bleu_1','Bleu_2','Bleu_3','Bleu_4', 'ROUGE_L', 'CIDEr'], log_every=100, save_every=1, log_path='./log/', model_path='./model/', pretrained_model= None):
+        self.sess = sess
         # ---create repos
         if not os.path.exists(model_path):
             os.makedirs(model_path)
@@ -83,12 +83,6 @@ class GAN(object):
         log_epoch_disc_loss = csv_logger(dir=log_path, file_name=timestamp + '_epoch_disc_loss', first_row=['epoch', 'loss'])
         log_epoch_disc_accuracy = csv_logger(dir=log_path, file_name=timestamp + '_epoch_disc_accuracy', first_row=['epoch', 'accuracy'])
 
-        # ---define graph config
-        config = tf.ConfigProto(allow_soft_placement=True)
-        config.gpu_options.allow_growth = True
-        self.sess = tf.Session(config=config)
-        self.sess.run(tf.global_variables_initializer())
-
         # ---load pretrained model
         saver = tf.train.Saver(max_to_keep=40)
         if pretrained_model is not None:
@@ -101,6 +95,7 @@ class GAN(object):
         for e in range(n_epochs):
             self.curr_gen_loss = 0
             self.curr_disc_loss = 0
+            self.curr_disc_acc = 0
             # ---shuffle data
             rand_idxs = np.random.permutation(n_examples)
             captions = captions[rand_idxs]
@@ -118,9 +113,7 @@ class GAN(object):
                 # ---extract features
                 features_batch = self.generator.extract_features(self.sess, image_file_names_batch)
                 # ---get reward from discriminator
-                feed_dict = {self.generator.features: features_batch, self.generator.captions: captions_batch, self.generator.emotions: emotions_batch}
-                fake_captions = self.sess.run(self.generator.generated_captions, feed_dict=feed_dict)
-                rewards = rollout.get_reward(self.sess, fake_captions, self.generator.generated_captions, rollout_num, self.discriminator, features_batch, captions_batch)
+                rewards = self.get_reward(self.sess, features_batch, emotions_batch, captions_batch, rollout_num)
                 # ---train generator
                 feed_dict = {self.generator.rewards: rewards, self.generator.features: features_batch,
                              self.generator.captions: captions_batch, self.generator.mode_learning: 2, self.generator.emotions: emotions_batch}
@@ -163,44 +156,7 @@ class GAN(object):
 
             # ---evaluate generated samples: compute scores score at every epoch on validation set
             if validation:
-                # ---Init
-                n_samples = val_features.shape[0]
-                n_iters_val = int(np.ceil(float(n_samples) / batch_size))
-                all_gen_cap = np.ndarray((val_features.shape[0], self.generator.T-4))
-                # ---generate captions
-                val_features[:, :, 2048:2052] = np.repeat(np.expand_dims(np.repeat([[0,1,0,1]], val_features.shape[1], axis=0), 0), val_features.shape[0], axis=0)
-                for i in range(n_iters_val):
-                    features_batch = val_features[i * batch_size:(i + 1) * batch_size]
-                    feed_dict = {self.generator.features: features_batch,
-                                 self.generator.whole_samples: captions_batch[:,4:self.generator.T],
-                                 self.generator.nsample: 0, self.generator.mode_sampling: 1, self.generator.captions: captions_batch}
-                    gen_cap = self.sess.run(self.generator.generated_captions, feed_dict=feed_dict)
-                    all_gen_cap[i * batch_size:(i + 1) * batch_size] = gen_cap
-
-                all_decoded = decode_captions(all_gen_cap, self.generator.idx_to_word)
-                # ---store generated captions
-                save_pickle(all_decoded, os.path.join(data_save_path, "val.candidate.captions.pkl"))
-                # --compute scores
-                scores = evaluate(data_path=data_save_path, split='val', get_scores=True)
-                # ---log
-                write_bleu(scores=scores, path=model_path, epoch=e, senti=[1])
-
-                # ---generate captions
-                val_features[:, :, 2048:2052] = np.repeat(np.expand_dims(np.repeat([[0, 0, 1, 2]], val_features.shape[1], axis=0), 0), val_features.shape[0], axis=0)
-                for i in range(n_iters_val):
-                    features_batch = val_features[i * batch_size:(i + 1) * batch_size]
-                    feed_dict = {self.generator.features: features_batch, self.generator.whole_samples: captions_batch[:,4:self.generator.T],
-                                 self.generator.nsample: 0, self.generator.mode_sampling: 1, self.generator.captions: captions_batch}
-                    gen_cap = self.sess.run(self.generator.generated_captions, feed_dict=feed_dict)
-                    all_gen_cap[i * batch_size:(i + 1) * batch_size] = gen_cap
-
-                all_decoded = decode_captions(all_gen_cap, self.generator.idx_to_word)
-                # ---store generated captions
-                save_pickle(all_decoded, os.path.join(data_save_path, "val.candidate.captions.pkl"))
-                # --compute scores
-                scores = evaluate(data_path=data_save_path, split='val', get_scores=True)
-                # ---log
-                write_bleu(scores=scores, path=model_path, epoch=e, senti=[-1])
+                pass
 
             # ---save model's parameters
             if (e + 1) % save_every == 0:

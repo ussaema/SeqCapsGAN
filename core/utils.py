@@ -146,7 +146,7 @@ def combine_vocab(vocabs):
     return word_to_idx
 
 
-def load_coco_data(image_dir='image/train2014_resized/', caption_file='data/annotations/captions_train2014.json', splits=[1.]):
+def load_coco_data(image_dir='image/train2014_resized/', caption_file='data/annotations/captions_train2014.json', splits=[1.], max_length=15):
     start_t = time.time()
     n_splits = len(splits)
     starts = [0.0]
@@ -157,16 +157,16 @@ def load_coco_data(image_dir='image/train2014_resized/', caption_file='data/anno
         ends.append(splits[idx] + starts[idx])
 
     # about 80000 images and 400000 captions for train dataset
-    annotations = _process_caption_data(caption_file=caption_file, image_dir=image_dir, max_length=15) #maximum length of caption(number of word). if caption is longer than max_length, deleted.
+    annotations = _process_caption_data(caption_file=caption_file, image_dir=image_dir, max_length=max_length) #maximum length of caption(number of word). if caption is longer than max_length, deleted.
     annotations = [annotations[int(len(annotations)*start): int(len(annotations)*end)] for (start, end) in zip(starts, ends)]
 
     data = [{} for _ in splits]
     for data_idx, annotation in enumerate(annotations):
         data[data_idx]['word_to_idx'] = _build_vocab(annotations=annotation, threshold=1) # if word occurs less than word_count_threshold in training dataset, the word index is special unknown token.
 
-        data[data_idx]['captions'] = _build_caption_vector(annotations=annotation, word_to_idx=data[data_idx]['word_to_idx'], max_length=15)
+        data[data_idx]['captions'] = _build_caption_vector(annotations=annotation, word_to_idx=data[data_idx]['word_to_idx'], max_length=max_length)
 
-        data[data_idx]['emotions'] = _build_emotion_vector(annotations=annotation, word_to_idx=data[data_idx]['word_to_idx'], max_length=15)
+        data[data_idx]['emotions'] = _build_emotion_vector(annotations=annotation, word_to_idx=data[data_idx]['word_to_idx'], max_length=max_length)
 
         data[data_idx]['file_names'], id_to_idx = _build_file_names(annotation)
 

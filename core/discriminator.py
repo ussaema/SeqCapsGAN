@@ -141,9 +141,9 @@ class Discriminator(object):
         self.prev_loss = -1
         self.prev_acc = -1
 
-    def train(self, data, val_data, generator, n_epochs=10, batch_size=100, validation=False, dropout_keep_prob=1.0,  save_every= 1, log_every= 1, model_path='./model/discriminator/', pretrained_model=None,
+    def train(self, sess, data, val_data, generator, n_epochs=10, batch_size=100, validation=False, dropout_keep_prob=1.0,  save_every= 1, log_every= 1, model_path='./model/discriminator/', pretrained_model=None,
               log_path='./log/discriminator/', iterations=1):
-
+        self.sess = sess
         # ---create repos
         if not os.path.exists(model_path):
             os.makedirs(model_path)
@@ -170,12 +170,6 @@ class Discriminator(object):
         log_epoch_accuracy = csv_logger(dir=log_path, file_name=timestamp + '_epoch_accuracy', first_row=['epoch', 'accuracy'])
         log_epoch_loss_val = csv_logger(dir=log_path, file_name=timestamp + '_epoch_loss_val', first_row=['epoch', 'loss'])
         log_epoch_accuracy_val = csv_logger(dir=log_path, file_name=timestamp + '_epoch_accuracy_val', first_row=['epoch', 'accuracy'])
-
-        # ---define graph config
-        config = tf.ConfigProto(allow_soft_placement=True)
-        config.gpu_options.allow_growth = True
-        self.sess = tf.Session(config=config)
-        self.sess.run(tf.global_variables_initializer())
 
         # ---load pretrained model
         saver = tf.train.Saver(max_to_keep=40)

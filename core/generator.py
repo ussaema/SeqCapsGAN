@@ -32,6 +32,7 @@ from core.log import *
 from tqdm import tqdm
 import logging, os
 from datetime import datetime
+from tensorflow.python.ops import tensor_array_ops, control_flow_ops
 
 logging.disable(logging.WARNING)
 os.environ["TF_CPP_MIN_LOG_LEVEL"] = "3"
@@ -70,7 +71,7 @@ class Generator(object):
 
         self.M = dim_embed
         self.H = dim_hidden
-        self.T = n_time_step
+        self.T = n_time_step + 1
         self._start = word_to_idx['<START>']
         self._null = word_to_idx['<NULL>']
 
@@ -95,13 +96,12 @@ class Generator(object):
         self.emotions = tf.placeholder(tf.float32, [None, 3])
         self.rewards = tf.placeholder(tf.float32, shape=[None, self.T])  # get from rollout policy and discriminator
         self.mode_learning = tf.placeholder(tf.int32)
-        self.mode_sampling = tf.placeholder(tf.int32)
 
         # Build graphs for training model and sampling captions
         with tf.variable_scope(tf.get_variable_scope()):
             self.loss = self.build_model()
             tf.get_variable_scope().reuse_variables()
-            _, _, self.generated_captions = self.build_sampler(max_len=self.T)
+            _, _, self.generated_captions = self.build_sampler()
 
         # ---set an optimizer by update rule
         if update_rule == 'adam':
@@ -252,10 +252,13 @@ class Generator(object):
             alpha_reg = self.alpha_c * tf.reduce_sum((16./196 - alphas_all) ** 2)
             loss += alpha_reg
 
-        loss= tf.cond(mode<2, lambda: loss / tf.to_float(batch_size), lambda: (loss / tf.to_float(batch_size)) + 0.01*tf.reduce_sum(tf.reduce_sum(tf.one_hot(tf.to_int32(tf.reshape(self.captions, [-1])), self.V, 1.0, 0.0), 1) * tf.reshape(self.rewards, [-1]))/tf.to_float(batch_size) )
+        loss= tf.cond(mode<2, lambda: loss / tf.to_float(batch_size),
+                      lambda: (loss / tf.to_float(batch_size)) + 0.01*tf.reduce_sum(tf.reduce_sum(tf.one_hot(tf.to_int32(tf.reshape(self.captions[:,:self.T], [-1])), self.V, 1.0, 0.0), 1) * tf.reshape(self.rewards, [-1]))/tf.to_float(batch_size) )
         return loss
 
-    def build_sampler(self, max_len=20):
+    def build_sampler(self, seq_len = None):
+        if seq_len is None:
+            seq_len = self.T
         features = self.features
         emotions = self.emotions
 
@@ -270,23 +273,23 @@ class Generator(object):
         beta_list = []
         lstm_cell = tf.nn.rnn_cell.BasicLSTMCell(num_units=self.H)
 
-        for t in range(max_len):
+        for t in range(seq_len):
             if t == 0:
                 x = self._word_embedding(inputs=tf.fill([tf.shape(features)[0]], self._start))
             else:
                 x = self._word_embedding(inputs=sampled_word, reuse=True)
 
-            context, alpha = self._attention_layer(features, features_proj, h, reuse=(t!=0))
+            context, alpha = self._attention_layer(features, features_proj, h, reuse=(t != 0))
             alpha_list.append(alpha)
 
             if self.selector:
-                context, beta = self._selector(context, h, reuse=(t!=0))
+                context, beta = self._selector(context, h, reuse=(t != 0))
                 beta_list.append(beta)
 
-            with tf.variable_scope('lstm', reuse=(t!=0)):
-                _, (c, h) = lstm_cell(inputs=tf.concat( [x, context, emotions],1), state=[c, h])
+            with tf.variable_scope('lstm', reuse=(t != 0)):
+                _, (c, h) = lstm_cell(inputs=tf.concat([x, context, emotions], 1), state=[c, h])
 
-            logits = self._decode_lstm(x, h, context, emotions, reuse=(t!=0))
+            logits = self._decode_lstm(x, h, context, emotions, reuse=(t != 0))
             sampled_word = tf.argmax(logits, 1)
             sampled_word_list.append(sampled_word)
 
@@ -307,17 +310,17 @@ class Generator(object):
         image_batch = np.array(images).astype(np.float32)
         if self.features_extractor == 'vgg':
             features_batch = sess.run(self.vggnet.features, feed_dict={self.vggnet.images: image_batch})
-        elif self.self.features_extractor == 'resnet':
+        elif self.features_extractor == 'resnet':
             image_batch = torch.tensor(image_batch).view(-1, image_batch.shape[3], image_batch.shape[1],
                                                          image_batch.shape[2]).to(device)
             features_batch = self.resnet152(image_batch)
             features_batch = features_batch.cpu().detach().numpy().reshape(-1, 49, 2048)
         return features_batch
 
-    def train(self, data, val_data, n_epochs= 10, batch_size= 100,
+    def train(self, sess, data, val_data, n_epochs= 10, batch_size= 100,
               validation= False, scores=['Bleu_1','Bleu_2','Bleu_3','Bleu_4', 'ROUGE_L', 'CIDEr'], save_every= 1, log_every=1, log_path= './log/generator/', model_path= './model/generator/',
               pretrained_model= None, reward=None):
-
+        self.sess = sess
         # ---create repos
         if not os.path.exists(model_path):
             os.makedirs(model_path)
@@ -417,7 +420,7 @@ class Generator(object):
                 iters_bar.set_description('Training: current loss %d' % (l))
                 log_iters_loss.add_row([e + 1, i + 1, l])
             self.curr_loss /= n_iters_per_epoch
-            log_epoch_loss.add_row([e+1, i + 1, self.curr_loss])
+            log_epoch_loss.add_row([e+1, self.curr_loss])
 
             # ---print out BLEU scores and file write
             if validation:

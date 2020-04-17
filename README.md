@@ -4,11 +4,14 @@ We pretrain our models using [Microsoft COCO Dataset](http://cocodataset.org/#do
 Then, we train the models using [SentiCap Dataset](http://cm.cecs.anu.edu.au/post/senticap/).
 
 ### Requirements
-1. Python 3
-2. Numpy
-3. Hickle
-4. Python-skimage
-3. Tensorflow 1.14
+1. python 3.7.4
+2. numpy 1.18.1
+3. hickle 3.4.6
+4. scikit-image 0.16.2
+5. tensorflow 1.14 or tensorflow-gpu 1.14
+6. tqdm 4.44.1
+7. torch 1.4.0
+8. matplotlib 3.1.3
 
 ### TODO
 - [x] Build LSTM Generator

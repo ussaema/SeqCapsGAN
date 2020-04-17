@@ -21,7 +21,8 @@ Then, we train the models using [SentiCap Dataset](http://cm.cecs.anu.edu.au/pos
 - [x] Discriminator Logger
 - [ ] GAN train engine
 - [ ] Build CapsNet Discriminator
-- [ ] ...
+- [ ] Inference engine
+- [ ] Plots
 
 ### Train
 1. Download [Microsoft COCO Dataset](http://cocodataset.org/#download) including neutral image caption data: images: 2014 Train images [83K/13GB] ([download](http://images.cocodataset.org/zips/train2014.zip)), 2014 Val images [41K/6GB] ([download](http://images.cocodataset.org/zips/val2014.zip)), 2014 Test images [41K/6GB] ([download](http://images.cocodataset.org/zips/test2014.zip)), captions: 2014 Train/Val annotations [241MB] ([download](http://images.cocodataset.org/annotations/annotations_trainval2014.zip)) and extract them to the folder data/images.

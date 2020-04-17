@@ -7,36 +7,23 @@ from datetime import datetime
 from tqdm import tqdm
 from core.log import *
 
-class Gen_Data_loader():
-    def __init__(self, batch_size):
-        self.batch_size = batch_size
-        self.token_stream = []
 
-    def create_batches(self, data_file):
-        self.token_stream = []
-        with open(data_file, 'r') as f:
-            for line in f:
-                line = line.strip()
-                line = line.split()
-                parse_line = [int(x) for x in line]
-                if len(parse_line) == 20:
-                    self.token_stream.append(parse_line)
-
-        self.num_batch = int(len(self.token_stream) / self.batch_size)
-        self.token_stream = self.token_stream[:self.num_batch * self.batch_size]
-        self.sequence_batch = np.split(np.array(self.token_stream), self.num_batch, 0)
-        self.pointer = 0
-
-    def next_batch(self):
-        ret = self.sequence_batch[self.pointer]
-        self.pointer = (self.pointer + 1) % self.num_batch
-        return ret
-
-    def reset_pointer(self):
-        self.pointer = 0
-
-
+# An alternative to tf.nn.rnn_cell._linear function, which has been removed in Tensorfow 1.0.1
+# The highway layer is borrowed from https://github.com/mkroutikov/tf-lstm-char-cnn
 def linear(input_, output_size, scope=None):
+    '''
+    Linear map: output[k] = sum_i(Matrix[k, i] * input_[i] ) + Bias[k]
+    Args:
+    input_: a tensor or a list of 2D, batch x n, Tensors.
+    output_size: int, second dimension of W[i].
+    scope: VariableScope for the created subgraph; defaults to "Linear".
+  Returns:
+    A 2D Tensor with shape [batch x output_size] equal to
+    sum_i(input_[i] * W[i]), where W[i]s are newly created matrices.
+  Raises:
+    ValueError: if some of the arguments has unspecified or wrong shape.
+  '''
+
     shape = input_.get_shape().as_list()
     if len(shape) != 2:
         raise ValueError("Linear is expecting 2D arguments: %s" % str(shape))
@@ -44,14 +31,20 @@ def linear(input_, output_size, scope=None):
         raise ValueError("Linear expects shape[1] of arguments: %s" % str(shape))
     input_size = shape[1]
 
+    # Now the computation.
     with tf.variable_scope(scope or "SimpleLinear"):
         matrix = tf.get_variable("Matrix", [output_size, input_size], dtype=input_.dtype)
         bias_term = tf.get_variable("Bias", [output_size], dtype=input_.dtype)
 
     return tf.matmul(input_, tf.transpose(matrix)) + bias_term
 
-
 def highway(input_, size, num_layers=1, bias=-2.0, f=tf.nn.relu, scope='Highway'):
+    """Highway Network (cf. http://arxiv.org/abs/1505.00387).
+    t = sigmoid(Wy + b)
+    z = t * g(Wy + b) + (1 - t) * y
+    where g is nonlinearity, t is transform gate, and (1 - t) is carry gate.
+    """
+
     with tf.variable_scope(scope):
         for idx in range(num_layers):
             g = f(linear(input_, size, scope='highway_lin_%d' % idx))
@@ -63,21 +56,21 @@ def highway(input_, size, num_layers=1, bias=-2.0, f=tf.nn.relu, scope='Highway'
 
     return output
 
-
 class Discriminator(object):
 
     def __init__(
             self, sequence_length, num_classes, vocab_size,
             embedding_size, filter_sizes, num_filters, l2_reg_lambda=0.0):
-
+        # Placeholders for input, output and dropout
         self.input_x = tf.placeholder(tf.int32, [None, sequence_length], name="input_x")
         self.input_y = tf.placeholder(tf.float32, [None, num_classes], name="input_y")
         self.dropout_keep_prob = tf.placeholder(tf.float32, name="dropout_keep_prob")
 
+        # Keeping track of l2 regularization loss (optional)
         l2_loss = tf.constant(0.0)
 
         with tf.variable_scope('discriminator'):
-
+            # Embedding layer
             with tf.device('/cpu:0'), tf.name_scope("embedding"):
                 self.W = tf.Variable(
                     tf.random_uniform([vocab_size, embedding_size], -1.0, 1.0),
@@ -85,11 +78,8 @@ class Discriminator(object):
                 self.embedded_chars = tf.nn.embedding_lookup(self.W, self.input_x)
                 self.embedded_chars_expanded = tf.expand_dims(self.embedded_chars, -1)
 
-            with tf.name_scope("dropout_2"):
-                self.embedded_chars_expanded = tf.nn.dropout(self.embedded_chars_expanded, 0.8)
-
+            # Create a convolution + maxpool layer for each filter size
             pooled_outputs = []
-            skip_bn = True
             for filter_size, num_filter in zip(filter_sizes, num_filters):
                 with tf.name_scope("conv-maxpool-%s" % filter_size):
                     # Convolution Layer
@@ -102,13 +92,9 @@ class Discriminator(object):
                         strides=[1, 1, 1, 1],
                         padding="VALID",
                         name="conv")
-                    if skip_bn:
-                        skip_bn = False
-                    else:
-                        conv = tf.layers.batch_normalization(conv)
-
+                    # Apply nonlinearity
                     h = tf.nn.relu(tf.nn.bias_add(conv, b), name="relu")
-
+                    # Maxpooling over the outputs
                     pooled = tf.nn.max_pool(
                         h,
                         ksize=[1, sequence_length - filter_size + 1, 1, 1],
@@ -117,34 +103,36 @@ class Discriminator(object):
                         name="pool")
                     pooled_outputs.append(pooled)
 
+            # Combine all the pooled features
             num_filters_total = sum(num_filters)
             self.h_pool = tf.concat(pooled_outputs, 3)
             self.h_pool_flat = tf.reshape(self.h_pool, [-1, num_filters_total])
 
+            # Add highway
             with tf.name_scope("highway"):
                 self.h_highway = highway(self.h_pool_flat, self.h_pool_flat.get_shape()[1], 1, 0)
 
+            # Add dropout
             with tf.name_scope("dropout"):
-                self.h_drop = tf.nn.dropout(self.h_highway, 0.5)
+                self.h_drop = tf.nn.dropout(self.h_highway, self.dropout_keep_prob)
 
+            # Final (unnormalized) scores and predictions
             with tf.name_scope("output"):
                 W = tf.Variable(tf.truncated_normal([num_filters_total, num_classes], stddev=0.1), name="W")
                 b = tf.Variable(tf.constant(0.1, shape=[num_classes]), name="b")
                 l2_loss += tf.nn.l2_loss(W)
                 l2_loss += tf.nn.l2_loss(b)
                 self.scores = tf.nn.xw_plus_b(self.h_drop, W, b, name="scores")
-                self.ypred_for_auc = self.scores
+                self.ypred_for_auc = tf.nn.softmax(self.scores)
                 self.predictions = tf.argmax(self.scores, 1, name="predictions")
 
-            logits_real = self.scores[self.input_y == [0, 1], :]
-            logits_fake = self.scores[self.input_y == [1, 0], :]
-
+            # CalculateMean cross-entropy loss
             with tf.name_scope("loss"):
-                losses = tf.reduce_mean(logits_real) - tf.reduce_mean(logits_fake)
-                self.loss = losses + l2_reg_lambda * l2_loss
+                losses = tf.nn.softmax_cross_entropy_with_logits(logits=self.scores, labels=self.input_y)
+                self.loss = tf.reduce_mean(losses) + l2_reg_lambda * l2_loss
 
         self.params = [param for param in tf.trainable_variables() if 'discriminator' in param.name]
-        d_optimizer = tf.train.RMSPropOptimizer(0.00005)
+        d_optimizer = tf.train.AdamOptimizer(1e-4)
         grads_and_vars = d_optimizer.compute_gradients(self.loss, self.params, aggregation_method=2)
         self.train_op = d_optimizer.apply_gradients(grads_and_vars)
         self.params_clip = [var.assign(tf.clip_by_value(var, -0.01, 0.01)) for var in self.params]
@@ -154,7 +142,7 @@ class Discriminator(object):
         self.prev_acc = -1
 
     def train(self, data, val_data, generator, n_epochs=10, batch_size=100, validation=False, dropout_keep_prob=1.0,  save_every= 1, log_every= 1, model_path='./model/discriminator/', pretrained_model=None,
-              log_path='./log/discriminator/', iterations=3):
+              log_path='./log/discriminator/', iterations=1):
 
         # ---create repos
         if not os.path.exists(model_path):

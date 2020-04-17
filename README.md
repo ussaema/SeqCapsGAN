@@ -21,7 +21,8 @@ Then, we train the models using [SentiCap Dataset](http://cm.cecs.anu.edu.au/pos
 - [x] Build Conventional Discriminator
 - [x] Discriminator Logger
 - [x] GAN train engine
-- [ ] Validation engines
+- [x] Validation engines
+- [ ] Record examples of generated captions in GAN structure
 - [ ] SentiCap Dataset loader and build pre-processing engine
 - [ ] Build CapsNet Discriminator
 - [ ] Inference engine

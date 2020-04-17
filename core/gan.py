@@ -21,7 +21,6 @@ class GAN(object):
         self.dis_dropout_keep_prob = dis_dropout_keep_prob
 
         self.prev_gen_loss = -1
-        self.prev_gen_scores = -1
         self.prev_disc_acc = -1
         self.prev_disc_loss = -1
 
@@ -66,12 +65,13 @@ class GAN(object):
         emotions = data['emotions']
         image_idxs = data['image_idxs']
         image_file_names = data['image_files_names']
-        n_examples_val = val_data['captions'].shape[0]
-        n_iters_val = int(np.floor(float(n_examples_val) / batch_size))
         captions_val = val_data['captions']
         emotions_val = val_data['emotions']
         image_idxs_val = val_data['image_idxs']
         image_file_names_val = val_data['image_files_names']
+        file_names_val = val_data['file_names']
+        references_val = val_data['references']
+        references_emotions_val = val_data['references_emotions']
 
         # ---log
         timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M")
@@ -79,9 +79,11 @@ class GAN(object):
         log_iters_disc_loss = csv_logger(dir=log_path, file_name=timestamp + '_iters_disc_loss', first_row=['epoch', 'iteration', 'loss'])
         log_iters_disc_accuracy = csv_logger(dir=log_path, file_name=timestamp + '_iters_disc_accuracy', first_row=['epoch', 'iteration', 'accuracy'])
         log_epoch_gen_loss = csv_logger(dir=log_path, file_name=timestamp + '_epoch_gen_loss', first_row=['epoch', 'loss'])
-        log_epoch_gen_scores = csv_logger(dir=log_path, file_name=timestamp + '_epoch_gen_scores', first_row=['epoch',]+gen_scores)
         log_epoch_disc_loss = csv_logger(dir=log_path, file_name=timestamp + '_epoch_disc_loss', first_row=['epoch', 'loss'])
         log_epoch_disc_accuracy = csv_logger(dir=log_path, file_name=timestamp + '_epoch_disc_accuracy', first_row=['epoch', 'accuracy'])
+        log_epoch_gen_scores_val = csv_logger(dir=log_path, file_name=timestamp + '_epoch_gen_scores_val', first_row=['epoch', ] + gen_scores)
+        log_epoch_disc_loss_val = csv_logger(dir=log_path, file_name=timestamp + '_epoch_disc_loss_val', first_row=['epoch', 'loss'])
+        log_epoch_disc_accuracy_val = csv_logger(dir=log_path, file_name=timestamp + '_epoch_disc_accuracy_val', first_row=['epoch', 'accuracy'])
 
         # ---load pretrained model
         saver = tf.train.Saver(max_to_keep=40)
@@ -145,7 +147,7 @@ class GAN(object):
                 self.curr_disc_loss += iters_disc_loss
                 self.curr_disc_acc += iters_disc_acc
                 iters_bar.update()
-                iters_bar.set_description('Training: current disc loss/acc %f/%f%%' % (iters_disc_loss, iters_disc_acc * 100))
+                iters_bar.set_description('Training: current disc loss/acc %f/%f%% / gen loss %f' % (iters_disc_loss, iters_disc_acc * 100, l_gen))
                 log_iters_disc_loss.add_row([e + 1, i + 1, iters_disc_loss])
                 log_iters_disc_accuracy.add_row([e + 1, i + 1, iters_disc_acc])
 
@@ -156,13 +158,19 @@ class GAN(object):
 
             # ---evaluate generated samples: compute scores score at every epoch on validation set
             if validation:
-                pass
+                losses_val, accs_val = self.discriminator.validate(batch_size, captions_val, emotions_val,
+                                                     image_idxs_val, image_file_names_val, self.generator, self.dis_dropout_keep_prob, verbose=0)
+                log_epoch_disc_loss_val.add_row([e + 1, losses_val])
+                log_epoch_disc_accuracy_val.add_row([e + 1, accs_val])
+                scores = self.generator.validate(batch_size, file_names_val, references_emotions_val, references_val, gen_scores, verbose=0) #TODO same scores are appended!!!
+                log_epoch_gen_scores_val.add_row([e + 1, ] + list(scores.values()))
 
             # ---save model's parameters
             if (e + 1) % save_every == 0:
                 saver.save(self.sess, os.path.join(model_path, "model.ckpt"))
 
             epoch_bar.update()
-            epoch_bar.set_description('Training: disc previous - current epoch loss %f - %f / previous - current epoch acc %f%% - %f%%' % (self.prev_disc_loss, self.curr_disc_loss, self.prev_disc_acc * 100, self.curr_disc_acc * 100))
+            epoch_bar.set_description('Training: disc previous - current epoch loss %f - %f / previous - current epoch acc %f%% - %f%% / gen previous - current epoch loss %f - %f' % (self.prev_disc_loss, self.curr_disc_loss, self.prev_disc_acc * 100, self.curr_disc_acc * 100, self.prev_gen_loss, self.curr_gen_loss))
             self.prev_disc_loss = self.curr_disc_loss
             self.prev_disc_acc = self.curr_disc_acc
+            self.prev_gen_loss = self.curr_gen_loss

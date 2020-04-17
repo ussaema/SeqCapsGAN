@@ -339,6 +339,7 @@ class Generator(object):
         n_iters_per_epoch_val = int(np.ceil(float(n_examples_val) / batch_size))
         references_val = val_data['references']
         file_names_val = val_data['file_names']
+        references_emotions_val = val_data['references_emotions']
 
         # ---get reward
         if not reward:
@@ -349,7 +350,7 @@ class Generator(object):
         log_generated_captions = csv_logger(dir=log_path, file_name=timestamp+'_captions', first_row=['epoch', 'image', 'generated', 'gt1', 'gt2', 'gt3', 'gt4', 'gt5'])
         log_iters_loss = csv_logger(dir=log_path, file_name=timestamp+'_iters_loss', first_row=['epoch', 'iteration', 'loss'])
         log_epoch_loss = csv_logger(dir=log_path, file_name=timestamp+'_epoch_loss', first_row=['epoch', 'loss'])
-        log_scores = csv_logger(dir=log_path, file_name=timestamp+'_scores', first_row=['epoch',]+scores)
+        log_epoch_scores_val = csv_logger(dir=log_path, file_name=timestamp+'_epoch_scores_val', first_row=['epoch',]+scores)
 
         # ---summary op
         """"summary_writer = tf.summary.FileWriter(log_path, graph=tf.get_default_graph())
@@ -378,7 +379,7 @@ class Generator(object):
             saver.restore(sess=self.sess, save_path= os.path.join(pretrained_model, 'model.ckpt'))
 
         # ---start training
-        print('*' * 20+ "Start Training"+ '*' * 20)
+        print('*' * 20+ "Start Generator Training"+ '*' * 20)
         epoch_bar = tqdm(total=n_epochs)
         for e in range(n_epochs):
             self.curr_loss = 0
@@ -424,20 +425,8 @@ class Generator(object):
 
             # ---print out BLEU scores and file write
             if validation:
-                all_gen_cap = np.zeros((n_examples_val, self.T))
-                val_iters_bar = tqdm(total=n_iters_per_epoch_val)
-                for i in range(n_iters_per_epoch_val):
-                    image_file_names_batch_val = file_names_val[i * batch_size:(i + 1) * batch_size]
-                    features_batch = self.extract_features(self.sess, image_file_names_batch_val)
-                    feed_dict = {self.features: features_batch}
-                    gen_cap = self.sess.run(self.generated_captions, feed_dict=feed_dict)
-                    all_gen_cap[i * batch_size:(i + 1) * batch_size] = gen_cap
-                    val_iters_bar.update()
-
-                all_decoded = decode_captions(all_gen_cap, self.idx_to_word)
-                scores = evaluate(all_decoded, references_val, scores)
-                val_iters_bar.set_description('Validation: Bleu_1: %f' % scores['Bleu_1']+' Bleu_2: %f' % scores['Bleu_2']+' Bleu_3: %f' % scores['Bleu_3']+' Bleu_4: %f' % scores['Bleu_4']+' ROUGE_L: %f' % scores['ROUGE_L']+' CIDEr: %f' % scores['CIDEr'])
-                log_scores.add_row([e + 1,]+list(scores.values()))
+                scores = self.validate(batch_size, file_names_val, references_emotions_val, references_val, scores)
+                log_epoch_scores_val.add_row([e + 1, ] + list(scores.values()))
 
             # ---save model's parameters
             if (e + 1) % save_every == 0:
@@ -446,6 +435,30 @@ class Generator(object):
             epoch_bar.update()
             epoch_bar.set_description('Training: previous - current epoch loss %f - %f'%(self.prev_loss, self.curr_loss))
             self.prev_loss = self.curr_loss
+
+    def validate(self, batch_size, file_names_val, references_emotions_val, references_val, scores, verbose = 1):
+        n_iters_per_epoch_val = int(np.ceil(float(file_names_val.shape[0]) / batch_size))
+        all_gen_cap = []
+        if verbose:
+            val_iters_bar = tqdm(total=n_iters_per_epoch_val)
+        for i in range(n_iters_per_epoch_val):
+            image_file_names_batch_val = file_names_val[i * batch_size:(i + 1) * batch_size]
+            emotions_batch_val = references_emotions_val[i * batch_size:(i + 1) * batch_size]
+            features_batch = self.extract_features(self.sess, image_file_names_batch_val)
+            feed_dict = {self.features: features_batch, self.emotions: emotions_batch_val}
+            gen_cap = self.sess.run(self.generated_captions, feed_dict=feed_dict)
+            all_gen_cap.append(gen_cap)
+            if verbose:
+                val_iters_bar.update()
+
+        all_decoded = decode_captions(np.vstack(all_gen_cap), self.idx_to_word)
+        scores = evaluate(all_decoded, references_val, scores)
+        if verbose:
+            val_iters_bar.set_description(
+                'Validation: Bleu_1: %f' % scores['Bleu_1'] + ' Bleu_2: %f' % scores['Bleu_2'] + ' Bleu_3: %f' % scores[
+                    'Bleu_3'] + ' Bleu_4: %f' % scores['Bleu_4'] + ' ROUGE_L: %f' % scores['ROUGE_L'] + ' CIDEr: %f' %
+                scores['CIDEr'])
+        return scores
 
     def test(self, data, split='train', attention_visualization=True, save_sampled_captions=True):
         '''

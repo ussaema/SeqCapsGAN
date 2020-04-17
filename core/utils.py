@@ -175,14 +175,17 @@ def load_coco_data(image_dir='image/train2014_resized/', caption_file='data/anno
         # prepare reference captions to compute bleu scores later
         image_ids = {}
         references = {}
+        references_emotions = []
         i = -1
-        for caption, image_id in zip(annotation['caption'], annotation['image_id']):
+        for caption, emotion, image_id in zip(annotation['caption'], data[data_idx]['emotions'], annotation['image_id']):
             if not image_id in image_ids:
+                references_emotions.append(emotion)
                 image_ids[image_id] = 0
                 i += 1
                 references[i] = []
             references[i].append(caption.lower() + ' .')
         data[data_idx]['references'] = references
+        data[data_idx]['references_emotions'] = references_emotions
         data[data_idx]['image_files_names'] = np.array([data[data_idx]['file_names'][idx] for idx in data[data_idx]['image_idxs']])
 
     end_t = time.time()

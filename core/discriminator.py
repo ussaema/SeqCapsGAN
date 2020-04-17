@@ -178,7 +178,7 @@ class Discriminator(object):
             saver.restore(sess=self.sess, save_path=os.path.join(pretrained_model, 'model.ckpt'))
 
         # ---START training of discriminator
-        print('*' * 20+ "Start Training"+ '*' * 20)
+        print('*' * 20+ "Start Discriminator Training"+ '*' * 20)
         epoch_bar = tqdm(total=n_epochs)
         for e in range(n_epochs):
             self.curr_loss = 0
@@ -228,7 +228,7 @@ class Discriminator(object):
                 iters_bar.update()
                 iters_bar.set_description('Training: current loss/acc %f/%f%%' % (losses, accs*100))
                 log_iters_loss.add_row([e + 1, i + 1, accs])
-                log_iters_accuracy.add_row([e + 1, i + 1, accs])
+                log_iters_accuracy.add_row([e + 1, i + 1, losses])
             self.curr_loss /= n_iters_per_epoch
             self.curr_acc /= n_iters_per_epoch
             log_epoch_loss.add_row([e + 1, self.curr_loss])
@@ -236,40 +236,9 @@ class Discriminator(object):
 
             # ---print out validation loss and accuracies
             if validation:
-                losses_val = []
-                accs_val = []
-                iters_bar_val = tqdm(total=n_iters_val)
-                for i in range(n_iters_val):
-                    # ---get one batch
-                    captions_batch = captions_val[i * batch_size:(i + 1) * batch_size]
-                    emotions_batch = emotions_val[i * batch_size:(i + 1) * batch_size]
-                    image_idxs_batch = image_idxs_val[i * batch_size:(i + 1) * batch_size]
-                    image_file_names_batch = image_file_names_val[i * batch_size:(i + 1) * batch_size]
-                    # ---extract features
-                    features_batch = generator.extract_features(self.sess, image_file_names_batch)
-                    # ---train one step
-                    feed_dict = {generator.features: features_batch, generator.emotions: emotions_batch,
-                                 generator.captions: captions_batch, generator.mode_learning: 1}
-                    # ---create a pair of fake and real captions
-                    fake_captions = self.sess.run(generator.generated_captions, feed_dict)
-                    real_captions = captions_batch[:, :generator.T]
-                    real_fake_captions = np.concatenate([real_captions, fake_captions], axis=0)
-                    fake_labels = [[1, 0] for _ in fake_captions]
-                    real_labels = [[0, 1] for _ in real_captions]
-                    real_fake_labels = np.concatenate([real_labels, fake_labels], axis=0)
-                    feed = {self.input_x: real_fake_captions, self.input_y: real_fake_labels,
-                            self.dropout_keep_prob: dropout_keep_prob}
-                    loss, pred = self.sess.run([self.loss, self.predictions], feed)
-                    acc = np.mean(np.argmax(real_fake_labels, axis=1) == pred)
-                    losses_val.append(loss)
-                    accs_val.append(acc)
-                    iters_bar_val.update()
-                    iters_bar_val.set_description('Validation: loss/acc %f/%f%%' % (loss, acc * 100))
-                losses_val = np.array(losses_val).mean()
-                accs_val = np.array(accs_val).mean()
+                losses_val, accs_val = self.validate(batch_size, captions_val, emotions_val, image_idxs_val, image_file_names_val, generator, dropout_keep_prob)
                 log_epoch_loss_val.add_row([e + 1, losses_val])
                 log_epoch_accuracy_val.add_row([e + 1, accs_val])
-                iters_bar_val.set_description('Validation: mean loss/acc %f/%f%%' % (losses_val, accs_val* 100))
 
             # ---save model's parameters
             if (e + 1) % save_every == 0:
@@ -279,3 +248,42 @@ class Discriminator(object):
             epoch_bar.set_description('Training: previous - current epoch loss %f - %f / previous - current epoch acc %f%% - %f%%' % (self.prev_loss, self.curr_loss, self.prev_acc*100, self.curr_acc*100))
             self.prev_loss = self.curr_loss
             self.prev_acc = self.curr_acc
+
+    def validate(self, batch_size, captions_val, emotions_val, image_idxs_val, image_file_names_val, generator, dropout_keep_prob, verbose=1):
+        n_iters_val = int(np.floor(float(captions_val.shape[0]) / batch_size))
+        losses_val = []
+        accs_val = []
+        if verbose:
+            iters_bar_val = tqdm(total=n_iters_val)
+        for i in range(n_iters_val):
+            # ---get one batch
+            captions_batch = captions_val[i * batch_size:(i + 1) * batch_size]
+            emotions_batch = emotions_val[i * batch_size:(i + 1) * batch_size]
+            image_idxs_batch = image_idxs_val[i * batch_size:(i + 1) * batch_size]
+            image_file_names_batch = image_file_names_val[i * batch_size:(i + 1) * batch_size]
+            # ---extract features
+            features_batch = generator.extract_features(self.sess, image_file_names_batch)
+            # ---train one step
+            feed_dict = {generator.features: features_batch, generator.emotions: emotions_batch,
+                         generator.captions: captions_batch, generator.mode_learning: 1}
+            # ---create a pair of fake and real captions
+            fake_captions = self.sess.run(generator.generated_captions, feed_dict)
+            real_captions = captions_batch[:, :generator.T]
+            real_fake_captions = np.concatenate([real_captions, fake_captions], axis=0)
+            fake_labels = [[1, 0] for _ in fake_captions]
+            real_labels = [[0, 1] for _ in real_captions]
+            real_fake_labels = np.concatenate([real_labels, fake_labels], axis=0)
+            feed = {self.input_x: real_fake_captions, self.input_y: real_fake_labels,
+                    self.dropout_keep_prob: dropout_keep_prob}
+            loss, pred = self.sess.run([self.loss, self.predictions], feed)
+            acc = np.mean(np.argmax(real_fake_labels, axis=1) == pred)
+            losses_val.append(loss)
+            accs_val.append(acc)
+            if verbose:
+                iters_bar_val.update()
+                iters_bar_val.set_description('Validation: loss/acc %f/%f%%' % (loss, acc * 100))
+        losses_val = np.array(losses_val).mean()
+        accs_val = np.array(accs_val).mean()
+        if verbose:
+            iters_bar_val.set_description('Validation: mean loss/acc %f/%f%%' % (losses_val, accs_val * 100))
+        return losses_val, accs_val

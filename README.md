@@ -14,12 +14,14 @@ Then, we train the models using [SentiCap Dataset](http://cm.cecs.anu.edu.au/pos
 8. matplotlib 3.1.3
 
 ### TODO
+- [x] COCO Dataset loader and build pre-processing engine
 - [x] Build LSTM Generator
 - [x] Incorporate emotions into the Generator
 - [x] Generator Logger
 - [x] Build Conventional Discriminator
 - [x] Discriminator Logger
 - [ ] GAN train engine
+- [ ] SentiCap Dataset loader and build pre-processing engine
 - [ ] Build CapsNet Discriminator
 - [ ] Inference engine
 - [ ] Plots

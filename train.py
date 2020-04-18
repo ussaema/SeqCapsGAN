@@ -11,6 +11,10 @@ parser.add_argument('--gen_train', action="store_true", default=True)
 parser.add_argument('--disc_train', action="store_true", default=True)
 parser.add_argument('--gan_train', action="store_true", default=True)
 
+parser.add_argument('--gen_validate', action="store_true", default=True)
+parser.add_argument('--disc_validate', action="store_true", default=True)
+parser.add_argument('--gan_validate', action="store_true", default=True)
+
 parser.add_argument('--word_to_idx_dir', type=str, default='data/word_to_idx.pkl')
 parser.add_argument('--train_senticap_data_dir', type=str, default='data/train_senticap_data.pkl')
 parser.add_argument('--val_senticap_data_dir', type=str, default='data/val_senticap_data.pkl')
@@ -74,7 +78,7 @@ def main():
         print('*' * 20 + "Start Training Generator" + '*' * 20)
         generator.train(train_senticap_data if args.gen_dataset == 'senticap' else train_coco_data, val_senticap_data if args.gen_dataset == 'senticap' else val_coco_data, n_epochs=args.gen_epochs, batch_size=args.gen_batchsize,
                         save_every=1, model_path=args.gen_save_model_dir,
-                        validation=True, log_path=args.gen_log_dir, log_every=1)
+                        validation=args.gen_validate, log_path=args.gen_log_dir, log_every=1)
 
     # discriminator network
     discriminator = Discriminator(sess, sequence_length=generator.T, num_classes=2, vocab_size=generator.V,
@@ -88,7 +92,7 @@ def main():
         print('*' * 20 + "Start Training Discriminator" + '*' * 20)
         discriminator.train(data=train_senticap_data if args.disc_dataset == 'senticap' else train_coco_data, val_data=val_senticap_data if args.disc_dataset == 'senticap' else val_coco_data, generator=generator, n_epochs=args.disc_epochs,
                             batch_size=args.disc_batchsize,
-                            validation=True, dropout_keep_prob=0.75, iterations=1,
+                            validation=args.disc_validate, dropout_keep_prob=0.75, iterations=1,
                             save_every=1, log_every=1, model_path=args.disc_save_model_dir,
                             log_path=args.disc_log_dir)
 
@@ -99,7 +103,7 @@ def main():
         # train gan
         print('*' * 20 + "Start Training GAN" + '*' * 20)
         gan.train(train_coco_data if args.gan_dataset == 'coco' else train_senticap_data, val_coco_data if args.gan_dataset == 'coco' else val_senticap_data, n_epochs=args.gan_epochs, batch_size=args.gan_batchsize, rollout_num=5,
-                  validation=True, log_every=1, save_every=1, gen_iterations=1, disc_iterations=1,
+                  validation=args.gan_validate, log_every=1, save_every=1, gen_iterations=1, disc_iterations=1,
                   model_path=args.gan_save_model_dir, log_path=args.gan_log_dir)
 
 if __name__ == "__main__":

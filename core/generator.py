@@ -32,7 +32,7 @@ from core.log import *
 from tqdm import tqdm
 import logging, os
 from datetime import datetime
-from tensorflow.python.ops import tensor_array_ops, control_flow_ops
+from core.utils import initialize_uninitialized
 
 logging.disable(logging.WARNING)
 os.environ["TF_CPP_MIN_LOG_LEVEL"] = "3"
@@ -41,10 +41,10 @@ os.environ["TF_CPP_MIN_LOG_LEVEL"] = "3"
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 class Generator(object):
-    def __init__(self, word_to_idx, dim_embed=512, dim_hidden=1024, n_time_step=16,
+    def __init__(self, sess, word_to_idx, dim_embed=512, dim_hidden=1024, n_time_step=16,
                   prev2out=True, ctx2out=True, emo2out=True, alpha_c=0.0, selector=True, dropout=True,
                  update_rule='adam', learning_rate=0.001,
-                 vgg_model_path='./data/imagenet-vgg-verydeep-19.mat', features_extractor = 'vgg'):
+                 vgg_model_path='./data/imagenet-vgg-verydeep-19.mat', features_extractor = 'vgg', pretrained_model= None):
         """
         Args:
             word_to_idx: word-to-index mapping dictionary.
@@ -120,6 +120,14 @@ class Generator(object):
 
         # ---init
         self.prev_loss = -1
+
+        self.sess = sess
+        # ---load pretrained model
+        self.saver = tf.train.Saver(max_to_keep=40)
+        if pretrained_model is not None:
+            print("Pretrained generator loaded")
+            self.saver.restore(sess=self.sess, save_path=os.path.join(pretrained_model, 'model.ckpt'))
+        initialize_uninitialized(self.sess)
 
     def _get_initial_lstm(self, features):
         with tf.variable_scope('initial_lstm'):
@@ -317,10 +325,10 @@ class Generator(object):
             features_batch = features_batch.cpu().detach().numpy().reshape(-1, 49, 2048)
         return features_batch
 
-    def train(self, sess, data, val_data, n_epochs= 10, batch_size= 100,
+    def train(self, data, val_data, n_epochs= 10, batch_size= 100,
               validation= False, scores=['Bleu_1','Bleu_2','Bleu_3','Bleu_4', 'ROUGE_L', 'CIDEr'], save_every= 1, log_every=1, log_path= './log/generator/', model_path= './model/generator/',
-              pretrained_model= None, reward=None):
-        self.sess = sess
+              reward=None):
+        sess = self.sess
         # ---create repos
         if not os.path.exists(model_path):
             os.makedirs(model_path)
@@ -365,21 +373,7 @@ class Generator(object):
                     pass
         self.summary_op = tf.summary.merge_all()"""
 
-        # ---define graph config
-        config = tf.ConfigProto(allow_soft_placement=True)
-        # config.gpu_options.per_process_gpu_memory_fraction=0.9
-        config.gpu_options.allow_growth = True
-        self.sess = tf.Session(config=config)
-        self.sess.run(tf.global_variables_initializer())
-
-        # ---load pretrained model
-        saver = tf.train.Saver(max_to_keep=40)
-        if pretrained_model is not None:
-            print("Training will start use a pretrained model")
-            saver.restore(sess=self.sess, save_path= os.path.join(pretrained_model, 'model.ckpt'))
-
-        # ---start training
-        print('*' * 20+ "Start Generator Training"+ '*' * 20)
+        # ---start training\
         epoch_bar = tqdm(total=n_epochs)
         for e in range(n_epochs):
             self.curr_loss = 0
@@ -398,14 +392,14 @@ class Generator(object):
                 image_idxs_batch = image_idxs[i * batch_size:(i + 1) * batch_size]
                 image_file_names_batch = image_file_names[i * batch_size:(i + 1) * batch_size]
                 # ---extract features
-                features_batch = self.extract_features(self.sess, image_file_names_batch)
+                features_batch = self.extract_features(sess, image_file_names_batch)
                 # ---train one step
                 feed_dict = {self.features: features_batch, self.emotions: emotions_batch, self.captions: captions_batch, self.rewards: rewards, self.mode_learning: 1}
-                _, l = self.sess.run([self.train_op, self.loss], feed_dict)
+                _, l = sess.run([self.train_op, self.loss], feed_dict)
                 self.curr_loss += l
                 # ---write summary for tensorboard visualization
                 """if i % 10 == 0:
-                    summary = self.sess.run(self.summary_op, feed_dict)
+                    summary = sess.run(self.summary_op, feed_dict)
                     summary_writer.add_summary(summary, e * n_iters_per_epoch + i)"""
                 # --- log
                 if (i + 1) % log_every == 0:
@@ -414,7 +408,7 @@ class Generator(object):
                     gt_list = []
                     for j, gt in enumerate(decoded):
                         gt_list.append(gt)
-                    gen_caps = self.sess.run(self.generated_captions, feed_dict)
+                    gen_caps = sess.run(self.generated_captions, feed_dict)
                     decoded = decode_captions(gen_caps, self.idx_to_word)
                     log_generated_captions.add_row([e+1, image_file_names_batch[0], decoded[0],]+gt_list)
                 iters_bar.update()
@@ -425,18 +419,18 @@ class Generator(object):
 
             # ---print out BLEU scores and file write
             if validation:
-                scores = self.validate(batch_size, file_names_val, references_emotions_val, references_val, scores)
+                scores = self.validate(sess, batch_size, file_names_val, references_emotions_val, references_val, scores)
                 log_epoch_scores_val.add_row([e + 1, ] + list(scores.values()))
 
             # ---save model's parameters
             if (e + 1) % save_every == 0:
-                saver.save(self.sess, os.path.join(model_path, "model.ckpt"))
+                self.saver.save(sess, os.path.join(model_path, "model.ckpt"))
 
             epoch_bar.update()
             epoch_bar.set_description('Training: previous - current epoch loss %f - %f'%(self.prev_loss, self.curr_loss))
             self.prev_loss = self.curr_loss
 
-    def validate(self, batch_size, file_names_val, references_emotions_val, references_val, scores, verbose = 1):
+    def validate(self, sess, batch_size, file_names_val, references_emotions_val, references_val, scores, verbose = 1):
         n_iters_per_epoch_val = int(np.ceil(float(file_names_val.shape[0]) / batch_size))
         all_gen_cap = []
         if verbose:
@@ -444,9 +438,9 @@ class Generator(object):
         for i in range(n_iters_per_epoch_val):
             image_file_names_batch_val = file_names_val[i * batch_size:(i + 1) * batch_size]
             emotions_batch_val = references_emotions_val[i * batch_size:(i + 1) * batch_size]
-            features_batch = self.extract_features(self.sess, image_file_names_batch_val)
+            features_batch = self.extract_features(sess, image_file_names_batch_val)
             feed_dict = {self.features: features_batch, self.emotions: emotions_batch_val}
-            gen_cap = self.sess.run(self.generated_captions, feed_dict=feed_dict)
+            gen_cap = sess.run(self.generated_captions, feed_dict=feed_dict)
             all_gen_cap.append(gen_cap)
             if verbose:
                 val_iters_bar.update()

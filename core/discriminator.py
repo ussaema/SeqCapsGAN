@@ -6,6 +6,7 @@ import numpy as np
 from datetime import datetime
 from tqdm import tqdm
 from core.log import *
+from core.utils import initialize_uninitialized
 
 
 # An alternative to tf.nn.rnn_cell._linear function, which has been removed in Tensorfow 1.0.1
@@ -59,8 +60,8 @@ def highway(input_, size, num_layers=1, bias=-2.0, f=tf.nn.relu, scope='Highway'
 class Discriminator(object):
 
     def __init__(
-            self, sequence_length, num_classes, vocab_size,
-            embedding_size, filter_sizes, num_filters, l2_reg_lambda=0.0):
+            self, sess, sequence_length, num_classes, vocab_size,
+            embedding_size, filter_sizes, num_filters, l2_reg_lambda=0.0, pretrained_model= None):
         # Placeholders for input, output and dropout
         self.input_x = tf.placeholder(tf.int32, [None, sequence_length], name="input_x")
         self.input_y = tf.placeholder(tf.float32, [None, num_classes], name="input_y")
@@ -141,9 +142,18 @@ class Discriminator(object):
         self.prev_loss = -1
         self.prev_acc = -1
 
-    def train(self, sess, data, val_data, generator, n_epochs=10, batch_size=100, validation=False, dropout_keep_prob=1.0,  save_every= 1, log_every= 1, model_path='./model/discriminator/', pretrained_model=None,
-              log_path='./log/discriminator/', iterations=1):
         self.sess = sess
+        # ---load pretrained model
+        self.saver = tf.train.Saver(max_to_keep=40)
+        if pretrained_model is not None:
+            print("Pretrained discriminator loaded")
+            self.saver.restore(sess=self.sess, save_path=os.path.join(pretrained_model, 'model.ckpt'))
+        initialize_uninitialized(self.sess)
+
+    def train(self, data, val_data, generator, n_epochs=10, batch_size=100, validation=False, dropout_keep_prob=1.0,  save_every= 1, log_every= 1, model_path='./model/discriminator/', pretrained_model=None,
+              log_path='./log/discriminator/', iterations=1):
+
+        sess = self.sess
         # ---create repos
         if not os.path.exists(model_path):
             os.makedirs(model_path)
@@ -171,14 +181,7 @@ class Discriminator(object):
         log_epoch_loss_val = csv_logger(dir=log_path, file_name=timestamp + '_epoch_loss_val', first_row=['epoch', 'loss'])
         log_epoch_accuracy_val = csv_logger(dir=log_path, file_name=timestamp + '_epoch_accuracy_val', first_row=['epoch', 'accuracy'])
 
-        # ---load pretrained model
-        saver = tf.train.Saver(max_to_keep=40)
-        if pretrained_model is not None:
-            print("Training will start use a pretrained model")
-            saver.restore(sess=self.sess, save_path=os.path.join(pretrained_model, 'model.ckpt'))
-
         # ---START training of discriminator
-        print('*' * 20+ "Start Discriminator Training"+ '*' * 20)
         epoch_bar = tqdm(total=n_epochs)
         for e in range(n_epochs):
             self.curr_loss = 0
@@ -198,14 +201,14 @@ class Discriminator(object):
                 image_idxs_batch = image_idxs[i * batch_size:(i + 1) * batch_size]
                 image_file_names_batch = image_file_names[i * batch_size:(i + 1) * batch_size]
                 # ---extract features
-                features_batch = generator.extract_features(self.sess, image_file_names_batch)
+                features_batch = generator.extract_features(sess, image_file_names_batch)
                 # ---train one step
                 feed_dict = {generator.features: features_batch, generator.emotions: emotions_batch, generator.captions: captions_batch, generator.mode_learning: 1}
                 accs = []
                 losses = []
                 for d_step in range(iterations):
                     # ---create a pair of fake and real captions
-                    fake_captions = self.sess.run(generator.generated_captions, feed_dict)
+                    fake_captions = sess.run(generator.generated_captions, feed_dict)
                     real_captions = captions_batch[:, :generator.T]
                     real_fake_captions = np.concatenate([real_captions, fake_captions], axis=0)
                     fake_labels = [[1, 0] for _ in fake_captions]
@@ -213,7 +216,7 @@ class Discriminator(object):
                     real_fake_labels = np.concatenate([real_labels, fake_labels], axis=0)
                     feed = {self.input_x: real_fake_captions, self.input_y: real_fake_labels,
                             self.dropout_keep_prob: dropout_keep_prob}
-                    _, loss, pred = self.sess.run([self.train_op, self.loss, self.predictions], feed)
+                    _, loss, pred = sess.run([self.train_op, self.loss, self.predictions], feed)
                     acc = np.mean(np.argmax(real_fake_labels, axis=1) == pred)
                     accs.append(acc)
                     losses.append(loss)
@@ -236,20 +239,20 @@ class Discriminator(object):
 
             # ---print out validation loss and accuracies
             if validation:
-                losses_val, accs_val = self.validate(batch_size, captions_val, emotions_val, image_idxs_val, image_file_names_val, generator, dropout_keep_prob)
+                losses_val, accs_val = self.validate(sess, batch_size, captions_val, emotions_val, image_idxs_val, image_file_names_val, generator, dropout_keep_prob)
                 log_epoch_loss_val.add_row([e + 1, losses_val])
                 log_epoch_accuracy_val.add_row([e + 1, accs_val])
 
             # ---save model's parameters
             if (e + 1) % save_every == 0:
-                saver.save(self.sess, os.path.join(model_path, "model.ckpt"))
+                self.saver.save(sess, os.path.join(model_path, "model.ckpt"))
 
             epoch_bar.update()
             epoch_bar.set_description('Training: previous - current epoch loss %f - %f / previous - current epoch acc %f%% - %f%%' % (self.prev_loss, self.curr_loss, self.prev_acc*100, self.curr_acc*100))
             self.prev_loss = self.curr_loss
             self.prev_acc = self.curr_acc
 
-    def validate(self, batch_size, captions_val, emotions_val, image_idxs_val, image_file_names_val, generator, dropout_keep_prob, verbose=1):
+    def validate(self, sess, batch_size, captions_val, emotions_val, image_idxs_val, image_file_names_val, generator, dropout_keep_prob, verbose=1):
         n_iters_val = int(np.floor(float(captions_val.shape[0]) / batch_size))
         losses_val = []
         accs_val = []
@@ -262,12 +265,12 @@ class Discriminator(object):
             image_idxs_batch = image_idxs_val[i * batch_size:(i + 1) * batch_size]
             image_file_names_batch = image_file_names_val[i * batch_size:(i + 1) * batch_size]
             # ---extract features
-            features_batch = generator.extract_features(self.sess, image_file_names_batch)
+            features_batch = generator.extract_features(sess, image_file_names_batch)
             # ---train one step
             feed_dict = {generator.features: features_batch, generator.emotions: emotions_batch,
                          generator.captions: captions_batch, generator.mode_learning: 1}
             # ---create a pair of fake and real captions
-            fake_captions = self.sess.run(generator.generated_captions, feed_dict)
+            fake_captions = sess.run(generator.generated_captions, feed_dict)
             real_captions = captions_batch[:, :generator.T]
             real_fake_captions = np.concatenate([real_captions, fake_captions], axis=0)
             fake_labels = [[1, 0] for _ in fake_captions]
@@ -275,7 +278,7 @@ class Discriminator(object):
             real_fake_labels = np.concatenate([real_labels, fake_labels], axis=0)
             feed = {self.input_x: real_fake_captions, self.input_y: real_fake_labels,
                     self.dropout_keep_prob: dropout_keep_prob}
-            loss, pred = self.sess.run([self.loss, self.predictions], feed)
+            loss, pred = sess.run([self.loss, self.predictions], feed)
             acc = np.mean(np.argmax(real_fake_labels, axis=1) == pred)
             losses_val.append(loss)
             accs_val.append(acc)

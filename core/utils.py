@@ -15,8 +15,14 @@ import os
 import json
 from matplotlib.pyplot import imread
 
+def initialize_uninitialized(sess):
+    global_vars          = tf.global_variables()
+    is_not_initialized   = sess.run([tf.is_variable_initialized(var) for var in global_vars])
+    not_initialized_vars = [v for (v, f) in zip(global_vars, is_not_initialized) if not f]
+    if len(not_initialized_vars):
+        sess.run(tf.variables_initializer(not_initialized_vars))
 
-def _process_caption_data(caption_file, image_dir, max_length):
+def _process_caption_coco_data(caption_file, image_dir, max_length):
     with open(caption_file) as f:
         caption_data = json.load(f)
 
@@ -53,11 +59,54 @@ def _process_caption_data(caption_file, image_dir, max_length):
     print("The number of captions after deletion: %d" % len(caption_data))
     return caption_data
 
+def _process_caption_senticap_data(caption_file, train_image_dir, val_image_dir, max_length):
+    with open(caption_file) as f:
+        caption_data = json.load(f)
 
-def _build_vocab(annotations, threshold=1):
+
+    # id_to_filename is a dictionary such as {image_id: filename]}
+    id_to_filename = {image['imgid']: image['filename'] for image in caption_data['images']}
+
+    # data is a list of dictionary which contains 'captions', 'file_name' and 'image_id' as key.
+    data = []
+    for line in caption_data['images']:
+        annotations = []
+        for sentence in line['sentences']:
+            annotation = {}
+            annotation['image_id'] = line['imgid']
+            annotation['caption'] = sentence['raw']
+            annotation['emotion'] = np.array([0,1,0]) if sentence['sentiment'] == 0 else np.array([1,0,0])
+            annotation['word_sentiment'] = sentence['word_sentiment']
+            annotation['file_name'] = os.path.join(train_image_dir if 'train' in line['filename'] else val_image_dir, id_to_filename[line['imgid']])
+            annotations.append(annotation)
+        data += annotations
+
+    # convert to pandas dataframe (for later visualization or debugging)
+    caption_data = pd.DataFrame.from_dict(data)
+    caption_data.sort_values(by='image_id', inplace=True)
+    caption_data = caption_data.reset_index(drop=True)
+
+    del_idx = []
+    for i, caption in enumerate(caption_data['caption']):
+        caption = caption.replace('.', '').replace(',', '').replace("'", "").replace('"', '')
+        caption = caption.replace('&', 'and').replace('(', '').replace(")", "").replace('-', ' ')
+        caption = " ".join(caption.split())  # replace multiple spaces
+
+        caption_data.at[i, 'caption'] = caption.lower()
+        if len(caption.split(" ")) > max_length:
+            del_idx.append(i)
+
+    # delete captions if size is larger than max_length
+    print("The number of captions before deletion: %d" % len(caption_data))
+    caption_data = caption_data.drop(caption_data.index[del_idx])
+    caption_data = caption_data.reset_index(drop=True)
+    print("The number of captions after deletion: %d" % len(caption_data))
+    return caption_data
+
+def _build_vocab(annotations, threshold=1, keyword='caption'):
     counter = Counter()
     max_len = 0
-    for i, caption in enumerate(annotations['caption']):
+    for i, caption in enumerate(annotations[keyword]):
         words = caption.split(' ')  # caption contrains only lower-case words
         for w in words:
             counter[w] += 1
@@ -77,11 +126,11 @@ def _build_vocab(annotations, threshold=1):
     return word_to_idx
 
 
-def _build_caption_vector(annotations, word_to_idx, max_length=15):
-    n_examples = len(annotations)
+def _build_caption_vector(annotations, word_to_idx, max_length=15, keyword='caption'):
+    n_examples = len(annotations[keyword])
     captions = np.ndarray((n_examples, max_length + 2)).astype(np.int32)
 
-    for i, caption in enumerate(annotations['caption']):
+    for i, caption in enumerate(annotations[keyword]):
         words = caption.split(" ")  # caption contrains only lower-case words
         cap_vec = []
         cap_vec.append(word_to_idx['<START>'])
@@ -130,7 +179,7 @@ def _build_image_idxs(annotations, id_to_idx):
         image_idxs[i] = id_to_idx[image_id]
     return image_idxs
 
-def combine_vocab(vocabs):
+def _combine_vocab(vocabs):
     vocab = []
     for v in vocabs:
         vocab += list(v.keys())
@@ -145,8 +194,71 @@ def combine_vocab(vocabs):
         idx += 1
     return word_to_idx
 
+def build_vocab(coco_dataset_files, senticap_dataset_files, train_image_dir, val_image_dir, max_length):
+    vocabs = []
+    for coco_dataset_file in coco_dataset_files:
+        vocabs.append(_build_vocab(_process_caption_coco_data(coco_dataset_file, train_image_dir, max_length)))
+    for senticap_dataset_file in senticap_dataset_files:
+        vocabs.append(_build_vocab(_process_caption_senticap_data(senticap_dataset_file, train_image_dir, val_image_dir, max_length)))
+    word_to_idx = _combine_vocab(vocabs)
+    return word_to_idx
 
-def load_coco_data(image_dir='image/train2014_resized/', caption_file='data/annotations/captions_train2014.json', splits=[1.], max_length=15):
+def load_senticap_data(vocab=None, train_image_dir='data/image/train2014_resized/', val_image_dir='data/image/val2014_resized/', caption_file='data/annotations/senticap_dataset.json', splits=[1.], max_length=15):
+    start_t = time.time()
+    n_splits = len(splits)
+    starts = [0.0]
+    ends = []
+    for idx in range(n_splits - 1):
+        starts.append(np.array(splits[:idx + 1]).sum())
+    for idx in range(n_splits):
+        ends.append(splits[idx] + starts[idx])
+
+    annotations = _process_caption_senticap_data(caption_file=caption_file, train_image_dir=train_image_dir, val_image_dir=val_image_dir,
+                                             max_length=max_length)  # maximum length of caption(number of word). if caption is longer than max_length, deleted.
+
+    annotations = [annotations[int(len(annotations) * start): int(len(annotations) * end)] for (start, end) in
+                   zip(starts, ends)]
+
+    data = [{} for _ in splits]
+    for data_idx, annotation in enumerate(annotations):
+        data[data_idx]['word_to_idx'] = vocab if vocab else _build_vocab(annotations=annotation,
+                                                     threshold=1)  # if word occurs less than word_count_threshold in training dataset, the word index is special unknown token.
+
+        data[data_idx]['captions'] = _build_caption_vector(annotations=annotation,
+                                                           word_to_idx=data[data_idx]['word_to_idx'],
+                                                           max_length=max_length)
+
+        data[data_idx]['emotions'] = np.stack(annotation['emotion'].to_numpy())
+
+        data[data_idx]['file_names'], id_to_idx = _build_file_names(annotation)
+
+        data[data_idx]['image_idxs'] = _build_image_idxs(annotation, id_to_idx)
+
+        # prepare reference captions to compute bleu scores later
+        image_ids = {}
+        references = {}
+        references_emotions = []
+        i = -1
+        for caption, emotion, image_id in zip(annotation['caption'], data[data_idx]['emotions'],
+                                              annotation['image_id']):
+            if not image_id in image_ids:
+                references_emotions.append(emotion)
+                image_ids[image_id] = 0
+                i += 1
+                references[i] = []
+            references[i].append(caption.lower() + ' .')
+        data[data_idx]['references'] = references
+        data[data_idx]['references_emotions'] = references_emotions
+        data[data_idx]['image_files_names'] = np.array(
+            [data[data_idx]['file_names'][idx] for idx in data[data_idx]['image_idxs']])
+
+    end_t = time.time()
+    print("Elapse time: %.2f" % (end_t - start_t))
+
+    return data if len(data) > 1 else data[0]
+
+
+def load_coco_data(vocab=None, image_dir='image/train2014_resized/', caption_file='data/annotations/captions_train2014.json', splits=[1.], max_length=15):
     start_t = time.time()
     n_splits = len(splits)
     starts = [0.0]
@@ -157,12 +269,12 @@ def load_coco_data(image_dir='image/train2014_resized/', caption_file='data/anno
         ends.append(splits[idx] + starts[idx])
 
     # about 80000 images and 400000 captions for train dataset
-    annotations = _process_caption_data(caption_file=caption_file, image_dir=image_dir, max_length=max_length) #maximum length of caption(number of word). if caption is longer than max_length, deleted.
+    annotations = _process_caption_coco_data(caption_file=caption_file, image_dir=image_dir, max_length=max_length) #maximum length of caption(number of word). if caption is longer than max_length, deleted.
     annotations = [annotations[int(len(annotations)*start): int(len(annotations)*end)] for (start, end) in zip(starts, ends)]
 
     data = [{} for _ in splits]
     for data_idx, annotation in enumerate(annotations):
-        data[data_idx]['word_to_idx'] = _build_vocab(annotations=annotation, threshold=1) # if word occurs less than word_count_threshold in training dataset, the word index is special unknown token.
+        data[data_idx]['word_to_idx'] = vocab if vocab else _build_vocab(annotations=annotation, threshold=1) # if word occurs less than word_count_threshold in training dataset, the word index is special unknown token.
 
         data[data_idx]['captions'] = _build_caption_vector(annotations=annotation, word_to_idx=data[data_idx]['word_to_idx'], max_length=max_length)
 

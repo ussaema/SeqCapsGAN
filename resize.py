@@ -1,6 +1,13 @@
 from PIL import Image
 import os
 
+import argparse
+
+parser = argparse.ArgumentParser(description='Resize images to 224x224')
+parser.add_argument('--input_folder_dir', type=str, default='./images/train2014/')
+parser.add_argument('--output_folder_dir', type=str, default='./images/train2014_resized/')
+
+args = parser.parse_args()
 
 def resize_image(image):
     width, height = image.size
@@ -21,8 +28,8 @@ def resize_image(image):
 def main():
     splits = ['val']
     for split in splits:
-        folder = './images/%s2014' %split
-        resized_folder = './images/%s2014_resized/' %split
+        folder = args.input_folder_dir
+        resized_folder = args.output_folder_dir
         if not os.path.exists(resized_folder):
             os.makedirs(resized_folder)
         print('Start resizing %s images.' %split)

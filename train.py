@@ -69,7 +69,7 @@ def main():
                           selector=True, dropout=True, features_extractor='vgg', update_rule='adam',
                           learning_rate=0.001, pretrained_model=args.gen_load_model_dir)
     print("*" * 16, "Generator built", "*" * 16)
-    if args.generator:
+    if args.gen_train:
         # pre-train generator
         print('*' * 20 + "Start Training Generator" + '*' * 20)
         generator.train(train_senticap_data if args.gen_dataset == 'senticap' else train_coco_data, val_senticap_data if args.gen_dataset == 'senticap' else val_coco_data, n_epochs=args.gen_epochs, batch_size=args.gen_batchsize,
@@ -83,7 +83,7 @@ def main():
                                   num_filters=[100, 200, 200, 200, 200, 100, 100, 100, 100, 100, 160, 160],
                                   l2_reg_lambda=0.2, pretrained_model=args.disc_load_model_dir)
     print("*" * 16, "Discriminator built", "*" * 16)
-    if args.discriminator:
+    if args.disc_train:
         # pre-train discriminator
         print('*' * 20 + "Start Training Discriminator" + '*' * 20)
         discriminator.train(data=train_senticap_data if args.disc_dataset == 'senticap' else train_coco_data, val_data=val_senticap_data if args.disc_dataset == 'senticap' else val_coco_data, generator=generator, n_epochs=args.disc_epochs,
@@ -95,7 +95,7 @@ def main():
     # gan network
     gan = GAN(sess, generator, discriminator, pretrained_model=args.gan_load_model_dir, dis_dropout_keep_prob=1.0)
     print("*" * 16, "GAN built", "*" * 16)
-    if args.gan:
+    if args.gan_train:
         # train gan
         print('*' * 20 + "Start Training GAN" + '*' * 20)
         gan.train(train_coco_data if args.gan_dataset == 'coco' else train_senticap_data, val_coco_data if args.gan_dataset == 'coco' else val_senticap_data, n_epochs=args.gan_epochs, batch_size=args.gan_batchsize, rollout_num=5,

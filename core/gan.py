@@ -75,6 +75,7 @@ class GAN(object):
 
         # ---log
         timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M")
+        log_generated_captions = csv_logger(dir=log_path, file_name=timestamp + '_captions', first_row=['epoch', 'image', 'generated', 'gt1', 'gt2', 'gt3', 'gt4', 'gt5'])
         log_iters_gen_loss = csv_logger(dir=log_path, file_name=timestamp + '_iters_gen_loss', first_row=['epoch', 'iteration', 'loss'])
         log_iters_disc_loss = csv_logger(dir=log_path, file_name=timestamp + '_iters_disc_loss', first_row=['epoch', 'iteration', 'loss'])
         log_iters_disc_accuracy = csv_logger(dir=log_path, file_name=timestamp + '_iters_disc_accuracy', first_row=['epoch', 'iteration', 'accuracy'])
@@ -141,7 +142,14 @@ class GAN(object):
 
                 # ---log
                 if (i + 1) % log_every == 0:
-                    pass
+                    ground_truths = captions[image_idxs == image_idxs_batch[0]]
+                    decoded = decode_captions(ground_truths, self.generator.idx_to_word)
+                    gt_list = []
+                    for j, gt in enumerate(decoded):
+                        gt_list.append(gt)
+                    decoded = decode_captions(fake_captions, self.generator.idx_to_word)
+                    log_generated_captions.add_row([e + 1, image_file_names_batch[0], decoded[0], ] + gt_list)
+
                 iters_disc_acc = np.array(iters_disc_acc).mean()
                 iters_disc_loss = np.array(iters_disc_loss).mean()
                 self.curr_disc_loss += iters_disc_loss

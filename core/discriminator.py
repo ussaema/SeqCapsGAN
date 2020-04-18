@@ -193,7 +193,7 @@ class Discriminator(object):
             image_idxs = image_idxs[rand_idxs]
             image_file_names = image_file_names[rand_idxs]
             # ---START training on one epoch
-            iters_bar = tqdm(total=n_iters_per_epoch)
+            iters_bar = tqdm(total=n_iters_per_epoch, position=0, leave=True)
             for i in range(n_iters_per_epoch):
                 # ---get one batch
                 captions_batch = captions[i * batch_size:(i + 1) * batch_size]
@@ -257,7 +257,7 @@ class Discriminator(object):
         losses_val = []
         accs_val = []
         if verbose:
-            iters_bar_val = tqdm(total=n_iters_val)
+            iters_bar_val = tqdm(total=n_iters_val, position=1, leave=True)
         for i in range(n_iters_val):
             # ---get one batch
             captions_batch = captions_val[i * batch_size:(i + 1) * batch_size]

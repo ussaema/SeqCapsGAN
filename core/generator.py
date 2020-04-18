@@ -374,7 +374,7 @@ class Generator(object):
         self.summary_op = tf.summary.merge_all()"""
 
         # ---start training\
-        epoch_bar = tqdm(total=n_epochs)
+        epoch_bar = tqdm(total=n_epochs, position=0, leave=True)
         for e in range(n_epochs):
             self.curr_loss = 0
             # ---shuffle data
@@ -384,7 +384,7 @@ class Generator(object):
             image_idxs = image_idxs[rand_idxs]
             image_file_names = image_file_names[rand_idxs]
             # ---START training on one epoch
-            iters_bar = tqdm(total=n_iters_per_epoch)
+            iters_bar = tqdm(total=n_iters_per_epoch, position=1, leave=True)
             for i in range(n_iters_per_epoch):
                 # ---get one batch
                 captions_batch = captions[i * batch_size:(i + 1) * batch_size]

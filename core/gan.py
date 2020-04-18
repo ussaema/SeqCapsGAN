@@ -99,7 +99,7 @@ class GAN(object):
         log_epoch_disc_accuracy_val = csv_logger(dir=log_path, file_name=timestamp + '_epoch_disc_accuracy_val', first_row=['epoch', 'accuracy'])
 
         # ---start training
-        epoch_bar = tqdm(total=n_epochs)
+        epoch_bar = tqdm(total=n_epochs, position=0, leave=True)
         for e in range(n_epochs):
             self.curr_gen_loss = 0
             self.curr_disc_loss = 0
@@ -111,7 +111,7 @@ class GAN(object):
             image_idxs = image_idxs[rand_idxs]
             image_file_names = image_file_names[rand_idxs]
             # ---START training on one epoch
-            iters_bar = tqdm(total=n_iters_per_epoch)
+            iters_bar = tqdm(total=n_iters_per_epoch, position=1, leave=True)
             for i in range(n_iters_per_epoch):
                 # ---get one batch
                 captions_batch = captions[i * batch_size:(i + 1) * batch_size]

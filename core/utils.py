@@ -150,8 +150,8 @@ def _build_caption_vector(annotations, word_to_idx, max_length=15, keyword='capt
 
 def _build_emotion_vector(annotations, word_to_idx, max_length=15):
     n_examples = len(annotations)
-    emotions_rand = np.random.randint(0, 3, (n_examples,)).astype(np.int32)
-    emotions = np.squeeze(np.eye(3)[emotions_rand.reshape(-1)])
+    emotions = np.repeat([[1,0,0]], n_examples, axis=0).astype(np.int32)
+    #emotions = np.squeeze(np.eye(3)[emotions_rand.reshape(-1)])
     print("Finished building emotion vectors")
     return emotions
 

@@ -412,7 +412,7 @@ class Generator(object):
                     decoded = decode_captions(gen_caps, self.idx_to_word)
                     log_generated_captions.add_row([e+1, image_file_names_batch[0], decoded[0],]+gt_list)
                 iters_bar.update()
-                iters_bar.set_description('Training: current loss %d' % (l))
+                iters_bar.set_description('Training: current loss %f' % (l))
                 log_iters_loss.add_row([e + 1, i + 1, l])
             self.curr_loss /= n_iters_per_epoch
             log_epoch_loss.add_row([e+1, self.curr_loss])

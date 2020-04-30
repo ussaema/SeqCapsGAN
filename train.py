@@ -7,13 +7,13 @@ import pickle
 import argparse
 
 parser = argparse.ArgumentParser(description='Training')
-parser.add_argument('--gen_train', action="store_true", default=True)
-parser.add_argument('--disc_train', action="store_true", default=True)
-parser.add_argument('--gan_train', action="store_true", default=True)
+parser.add_argument('--gen_train', action="store_true", default=False)
+parser.add_argument('--disc_train', action="store_true", default=False)
+parser.add_argument('--gan_train', action="store_true", default=False)
 
-parser.add_argument('--gen_validate', action="store_true", default=True)
-parser.add_argument('--disc_validate', action="store_true", default=True)
-parser.add_argument('--gan_validate', action="store_true", default=True)
+parser.add_argument('--gen_validate', action="store_true", default=False)
+parser.add_argument('--disc_validate', action="store_true", default=False)
+parser.add_argument('--gan_validate', action="store_true", default=False)
 
 parser.add_argument('--word_to_idx_dir', type=str, default='data/word_to_idx.pkl')
 parser.add_argument('--train_senticap_data_dir', type=str, default='data/train_senticap_data.pkl')
@@ -45,6 +45,12 @@ parser.add_argument('--gen_epochs', type=int, default=10)
 parser.add_argument('--disc_epochs', type=int, default=10)
 parser.add_argument('--gan_epochs', type=int, default=10)
 
+parser.add_argument('--gen_iters', type=int, default=1)
+parser.add_argument('--disc_iters', type=int, default=1)
+
+parser.add_argument('--gen_lr', type=float, default=0.001)
+parser.add_argument('--disc_lr', type=float, default=0.0001)
+
 args = parser.parse_args()
 
 def main():
@@ -71,7 +77,7 @@ def main():
     generator = Generator(sess, word_to_idx, dim_embed=512, dim_hidden=1024,
                           n_time_step=args.max_length, prev2out=True, ctx2out=True, emo2out=True, alpha_c=1.0,
                           selector=True, dropout=True, features_extractor='vgg', update_rule='adam',
-                          learning_rate=0.001, pretrained_model=args.gen_load_model_dir)
+                          learning_rate=args.gen_lr, pretrained_model=args.gen_load_model_dir)
     print("*" * 16, "Generator built", "*" * 16)
     if args.gen_train:
         # pre-train generator
@@ -85,7 +91,7 @@ def main():
                                   embedding_size=512,
                                   filter_sizes=[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 15, args.max_length - 4],
                                   num_filters=[100, 200, 200, 200, 200, 100, 100, 100, 100, 100, 160, 160],
-                                  l2_reg_lambda=0.2, pretrained_model=args.disc_load_model_dir)
+                                  l2_reg_lambda=0.2, pretrained_model=args.disc_load_model_dir, learning_rate=args.disc_lr)
     print("*" * 16, "Discriminator built", "*" * 16)
     if args.disc_train:
         # pre-train discriminator
@@ -103,7 +109,7 @@ def main():
         # train gan
         print('*' * 20 + "Start Training GAN" + '*' * 20)
         gan.train(train_coco_data if args.gan_dataset == 'coco' else train_senticap_data, val_coco_data if args.gan_dataset == 'coco' else val_senticap_data, n_epochs=args.gan_epochs, batch_size=args.gan_batchsize, rollout_num=5,
-                  validation=args.gan_validate, log_every=1, save_every=1, gen_iterations=1, disc_iterations=1,
+                  validation=args.gan_validate, log_every=1, save_every=1, gen_iterations=args.gen_iters, disc_iterations=args.disc_iters,
                   model_path=args.gan_save_model_dir, log_path=args.gan_log_dir)
 
 if __name__ == "__main__":

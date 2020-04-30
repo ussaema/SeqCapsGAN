@@ -13,7 +13,24 @@ import pandas as pd
 import hickle
 import os
 import json
+from PIL import Image
 from matplotlib.pyplot import imread
+
+def resize_image(image):
+    width, height = image.size
+    if width > height:
+        left = (width - height) / 2
+        right = width - left
+        top = 0
+        bottom = height
+    else:
+        top = (height - width) / 2
+        bottom = height - top
+        left = 0
+        right = width
+    image = image.crop((left, top, right, bottom))
+    image = image.resize([224, 224], Image.ANTIALIAS)
+    return image
 
 def initialize_uninitialized(sess):
     global_vars          = tf.global_variables()
@@ -252,6 +269,7 @@ def load_senticap_data(vocab=None, train_image_dir='data/image/train2014_resized
         data[data_idx]['image_files_names'] = np.array(
             [data[data_idx]['file_names'][idx] for idx in data[data_idx]['image_idxs']])
 
+    print("Senticap dataset split sizes:", [len(d['captions']) for d in data])
     end_t = time.time()
     print("Elapse time: %.2f" % (end_t - start_t))
 
@@ -299,7 +317,7 @@ def load_coco_data(vocab=None, image_dir='image/train2014_resized/', caption_fil
         data[data_idx]['references'] = references
         data[data_idx]['references_emotions'] = references_emotions
         data[data_idx]['image_files_names'] = np.array([data[data_idx]['file_names'][idx] for idx in data[data_idx]['image_idxs']])
-
+    print("COCO dataset split sizes:", [len(d['captions'])for d in data])
     end_t = time.time()
     print("Elapse time: %.2f" %(end_t - start_t))
     return data if len(data) > 1 else data[0]

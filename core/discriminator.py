@@ -61,7 +61,7 @@ class Discriminator(object):
 
     def __init__(
             self, sess, sequence_length, num_classes, vocab_size,
-            embedding_size, filter_sizes, num_filters, l2_reg_lambda=0.0, pretrained_model= None):
+            embedding_size, filter_sizes, num_filters, l2_reg_lambda=0.0, pretrained_model= None, learning_rate=None):
         # Placeholders for input, output and dropout
         self.input_x = tf.placeholder(tf.int32, [None, sequence_length], name="input_x")
         self.input_y = tf.placeholder(tf.float32, [None, num_classes], name="input_y")
@@ -133,10 +133,11 @@ class Discriminator(object):
                 self.loss = tf.reduce_mean(losses) + l2_reg_lambda * l2_loss
 
         self.params = [param for param in tf.trainable_variables() if 'discriminator' in param.name]
-        d_optimizer = tf.train.AdamOptimizer(1e-4)
-        grads_and_vars = d_optimizer.compute_gradients(self.loss, self.params, aggregation_method=2)
-        self.train_op = d_optimizer.apply_gradients(grads_and_vars)
-        self.params_clip = [var.assign(tf.clip_by_value(var, -0.01, 0.01)) for var in self.params]
+        if learning_rate:
+            d_optimizer = tf.train.AdamOptimizer(learning_rate)
+            grads_and_vars = d_optimizer.compute_gradients(self.loss, self.params, aggregation_method=2)
+            self.train_op = d_optimizer.apply_gradients(grads_and_vars)
+            self.params_clip = [var.assign(tf.clip_by_value(var, -0.01, 0.01)) for var in self.params]
 
         # ---init
         self.prev_loss = -1

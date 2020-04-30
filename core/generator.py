@@ -43,7 +43,7 @@ device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 class Generator(object):
     def __init__(self, sess, word_to_idx, dim_embed=512, dim_hidden=1024, n_time_step=16,
                   prev2out=True, ctx2out=True, emo2out=True, alpha_c=0.0, selector=True, dropout=True,
-                 update_rule='adam', learning_rate=0.001,
+                 update_rule='adam', learning_rate=None,
                  vgg_model_path='./data/imagenet-vgg-verydeep-19.mat', features_extractor = 'vgg', pretrained_model= None):
         """
         Args:
@@ -112,11 +112,12 @@ class Generator(object):
             self.optimizer = tf.train.RMSPropOptimizer
 
         # ---train op
-        with tf.variable_scope(tf.get_variable_scope(), reuse=False):
-            optimizer = self.optimizer(learning_rate=learning_rate)
-            grads = tf.gradients(self.loss, tf.trainable_variables())
-            self.grads_and_vars = list(zip(grads, tf.trainable_variables()))
-            self.train_op = optimizer.apply_gradients(grads_and_vars=self.grads_and_vars)
+        if learning_rate:
+            with tf.variable_scope(tf.get_variable_scope(), reuse=False):
+                optimizer = self.optimizer(learning_rate=learning_rate)
+                grads = tf.gradients(self.loss, tf.trainable_variables())
+                self.grads_and_vars = list(zip(grads, tf.trainable_variables()))
+                self.train_op = optimizer.apply_gradients(grads_and_vars=self.grads_and_vars)
 
         # ---init
         self.prev_loss = -1
@@ -310,6 +311,11 @@ class Generator(object):
         images = []
         for image in image_file_names_batch:
             imm = imread(image)
+            if imm.shape[0] != 224 or imm.shape[1] != 224:
+                with open(image, 'r+b') as f:
+                    with Image.open(f) as iim:
+                        imm = resize_image(iim)
+                        imm = np.array(imm)
             if len(imm.shape) == 3:
                 images.append(imm)
             else:
@@ -454,7 +460,7 @@ class Generator(object):
                 scores['CIDEr'])
         return scores
 
-    def test(self, data, split='train', attention_visualization=True, save_sampled_captions=True):
+    def test2(self, data, split='train', attention_visualization=True, save_sampled_captions=True):
         '''
         Args:
             - data: dictionary with the following keys:
@@ -516,3 +522,20 @@ class Generator(object):
                     all_sam_cap[i*self.batch_size:(i+1)*self.batch_size] = sess.run(sampled_captions, feed_dict)
                 all_decoded = decode_captions(all_sam_cap, self.idx_to_word)
                 save_pickle(all_decoded, "./data/%s/%s.candidate.captions.pkl" %(split,split))
+
+
+    def inference(self, image_path):
+
+        sess = self.sess
+
+        emotions = np.array([[0,0,1], [0,1,0], [1,0,0]], dtype=np.int32);
+        image_file_names = np.array([image_path]*3)
+
+        features_batch = self.extract_features(sess, image_file_names)
+        feed_dict = {self.features: features_batch, self.emotions: emotions}
+        gen_caps = sess.run(self.generated_captions, feed_dict)
+        decoded = decode_captions(gen_caps, self.idx_to_word)
+        print('Image:', image_file_names[0])
+        print('Neutral description:', decoded[0])
+        print('Negative description:', decoded[1])
+        print('Positive description:', decoded[2])

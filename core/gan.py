@@ -63,9 +63,7 @@ class GAN(object):
         return rewards
 
     def train(self, data, val_data, n_epochs=10, batch_size=100, rollout_num=10, validation=False, gen_iterations=1, disc_iterations=1, gen_scores=['Bleu_1','Bleu_2','Bleu_3','Bleu_4', 'ROUGE_L', 'CIDEr'], log_every=100, save_every=1, log_path='./log/', model_path='./model/'):
-        print("herere")
         sess = self.sess
-        print("jdksjdks")
         # ---create repos
         if not os.path.exists(model_path):
             os.makedirs(model_path)

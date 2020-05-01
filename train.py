@@ -23,6 +23,8 @@ parser.add_argument('--val_coco_data_dir', type=str, default='data/val_coco_data
 
 parser.add_argument('--max_length', type=int, default=25)
 
+parser.add_argument('--disc_network', type=str, default='capsnet')
+
 parser.add_argument('--gen_load_model_dir', type=str, default=None)
 parser.add_argument('--disc_load_model_dir', type=str, default=None)
 parser.add_argument('--gan_load_model_dir', type=str, default=None)
@@ -37,9 +39,7 @@ parser.add_argument('--gen_dataset', type=str, default='coco')
 parser.add_argument('--disc_dataset', type=str, default='coco')
 parser.add_argument('--gan_dataset', type=str, default='senticap')
 
-parser.add_argument('--gen_batchsize', type=int, default=8)
-parser.add_argument('--disc_batchsize', type=int, default=4)
-parser.add_argument('--gan_batchsize', type=int, default=8)
+parser.add_argument('--batchsize', type=int, default=8)
 
 parser.add_argument('--gen_epochs', type=int, default=10)
 parser.add_argument('--disc_epochs', type=int, default=10)
@@ -82,7 +82,7 @@ def main():
     if args.gen_train:
         # pre-train generator
         print('*' * 20 + "Start Training Generator" + '*' * 20)
-        generator.train(train_senticap_data if args.gen_dataset == 'senticap' else train_coco_data, val_senticap_data if args.gen_dataset == 'senticap' else val_coco_data, n_epochs=args.gen_epochs, batch_size=args.gen_batchsize,
+        generator.train(train_senticap_data if args.gen_dataset == 'senticap' else train_coco_data, val_senticap_data if args.gen_dataset == 'senticap' else val_coco_data, n_epochs=args.gen_epochs, batch_size=args.batchsize,
                         save_every=1, model_path=args.gen_save_model_dir,
                         validation=args.gen_validate, log_path=args.gen_log_dir, log_every=1)
 
@@ -91,13 +91,13 @@ def main():
                                   embedding_size=512,
                                   filter_sizes=[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 15, args.max_length - 4],
                                   num_filters=[100, 200, 200, 200, 200, 100, 100, 100, 100, 100, 160, 160],
-                                  l2_reg_lambda=0.2, pretrained_model=args.disc_load_model_dir, learning_rate=args.disc_lr)
+                                  l2_reg_lambda=0.2, pretrained_model=args.disc_load_model_dir, learning_rate=args.disc_lr, batch_size=args.batchsize, model=args.disc_network)
     print("*" * 16, "Discriminator built", "*" * 16)
     if args.disc_train:
         # pre-train discriminator
         print('*' * 20 + "Start Training Discriminator" + '*' * 20)
         discriminator.train(data=train_senticap_data if args.disc_dataset == 'senticap' else train_coco_data, val_data=val_senticap_data if args.disc_dataset == 'senticap' else val_coco_data, generator=generator, n_epochs=args.disc_epochs,
-                            batch_size=args.disc_batchsize,
+                            batch_size=args.batchsize,
                             validation=args.disc_validate, dropout_keep_prob=0.75, iterations=1,
                             save_every=1, log_every=1, model_path=args.disc_save_model_dir,
                             log_path=args.disc_log_dir)
@@ -108,7 +108,7 @@ def main():
     if args.gan_train:
         # train gan
         print('*' * 20 + "Start Training GAN" + '*' * 20)
-        gan.train(train_coco_data if args.gan_dataset == 'coco' else train_senticap_data, val_coco_data if args.gan_dataset == 'coco' else val_senticap_data, n_epochs=args.gan_epochs, batch_size=args.gan_batchsize, rollout_num=5,
+        gan.train(train_coco_data if args.gan_dataset == 'coco' else train_senticap_data, val_coco_data if args.gan_dataset == 'coco' else val_senticap_data, n_epochs=args.gan_epochs, batch_size=args.batchsize, rollout_num=5,
                   validation=args.gan_validate, log_every=1, save_every=1, gen_iterations=args.gen_iters, disc_iterations=args.disc_iters,
                   model_path=args.gan_save_model_dir, log_path=args.gan_log_dir)
 

@@ -24,8 +24,9 @@ Then, we train the models using [SentiCap Dataset](http://cm.cecs.anu.edu.au/pos
 - [x] Validation engines
 - [x] Record examples of generated captions in GAN structure
 - [x] SentiCap Dataset loader and build pre-processing engine
-- [ ] Build CapsNet Discriminator
+- [x] Build CapsNet Discriminator
 - [x] Inference engine
+- [ ] Train and evaluate
 - [ ] Plots
 
 ### Train
@@ -35,9 +36,9 @@ Then, we train the models using [SentiCap Dataset](http://cm.cecs.anu.edu.au/pos
 4. Download the VGG network used for feature extraction [download](http://www.vlfeat.org/matconvnet/models/imagenet-vgg-verydeep-19.mat) and move it to the folder data/
 5. Run `python resize.py --input_folder_dir ./data/images/train2014/ --output_folder_dir ./data/images/train2014_resized/ && python resize.py --input_folder_dir ./data/images/val2014/ --output_folder_dir ./data/images/val2014_resized/` (reseizes the downloded images into [224, 224] and puts them in data/images).
 6. Run `python prepro.py --coco_dataset_portions 1. 0.8 0.2 --senticap_dataset_portions 0.8 0.19 0.01`, where the first second and third entries are the split portion from the original dataset.
-7. Run `python train.py --gen_train --gen_save_model_dir ./model/generator/ --gen_dataset coco --gen_batchsize 8 --gen_epochs 10` to pretrain the generator.
-8. Run `python train.py --disc_train --disc_save_model_dir ./model/discriminator/ --disc_dataset coco --disc_batchsize 8 --disc_epochs 10` to pretrain the discriminator.
-9. Run `python train.py --gan_train --gan_save_model_dir ./model/gan/ --gan_dataset senticap --gan_batchsize 8 --gan_epochs 10` to train the GAN. You can add the arguments `--gen_load_model_dir` and/or `--disc_load_model_dir` to initialize your model with a pretrained generator and/or discriminator.
+7. Run `python train.py --gen_train --gen_save_model_dir ./model/generator/ --gen_dataset coco --batchsize 8 --gen_epochs 10` to pretrain the generator.
+8. Run `python train.py --disc_train --disc_network capsnet --gen_load_model_dir ./model/generator/ --disc_save_model_dir ./model/discriminator/ --disc_dataset coco --batchsize 8 --disc_epochs 10` to pretrain the discriminator.
+9. Run `python train.py --gan_train --disc_network capsnet --gen_load_model_dir ./model/generator/ --disc_load_model_dir ./model/discriminator/ --gan_save_model_dir ./model/gan/ --gan_dataset senticap --batchsize 8 --gan_epochs 10` to train the GAN. You can add the arguments `--gen_load_model_dir` and/or `--disc_load_model_dir` to initialize your model with a pretrained generator and/or discriminator.
 10. Run `python inference.py --word_to_idx_dir data/word_to_idx.pkl --image "test.jpg" --load_model_dir model/gan/` to describe an image.
 
 ### Test

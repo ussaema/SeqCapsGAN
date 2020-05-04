@@ -52,13 +52,13 @@ class CapsLayer(object):
                 # PrimaryCap convolution does a ReLU activation or not before
                 # squashing function, but experiment show that using ReLU get a
                 # higher test accuracy. So, which one to use will be your choice
-                capsules = tf.contrib.layers.conv2d(input, self.num_outputs * self.vec_len,
+                capsules = tf.contrib.layers.conv1d(input, self.num_outputs * self.vec_len,
                                                     self.kernel_size, self.stride, padding="VALID",
                                                     activation_fn=tf.nn.relu)
                 # capsules = tf.contrib.layers.conv2d(input, self.num_outputs * self.vec_len,
                 #                                    self.kernel_size, self.stride,padding="VALID",
                 #                                    activation_fn=None)
-                capsules = tf.reshape(capsules, (-1,capsules.shape[1]*capsules.shape[2]*capsules.shape[3]//self.vec_len, self.vec_len, 1))
+                capsules = tf.reshape(capsules, (-1,capsules.shape[1]*capsules.shape[2]//self.vec_len, self.vec_len, 1))
 
                 # return tensor with shape [batch_size, 1152, 8, 1]
                 capsules = squash(capsules)
@@ -68,7 +68,7 @@ class CapsLayer(object):
             if self.with_routing:
                 # the DigitCaps layer, a fully connected layer
                 # Reshape the input into [batch_size, 1152, 1, 8, 1]
-                self.input = tf.reshape(input, shape=(-1, input.shape[1], 1, input.shape[2], input.shape[3]))
+                self.input = tf.reshape(input, shape=(-1, input.shape[1], 1, input.shape[2], 1))
 
                 with tf.variable_scope('routing'):
                     # b_IJ: [batch_size, num_caps_l, num_caps_l_plus_1, 1, 1],

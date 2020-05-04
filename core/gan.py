@@ -138,24 +138,12 @@ class GAN(object):
                 real_fake_captions, real_fake_labels = real_fake_captions[idx], real_fake_labels[idx]
 
                 for d_step in range(disc_iterations):
-                    l_disc = 0
-                    acc_disc = 0
                     feed = {self.discriminator.input_x: real_fake_captions[:batch_size],
                             self.discriminator.input_y: real_fake_labels[:batch_size],
                             self.discriminator.dropout_keep_prob: self.dis_dropout_keep_prob}
-                    _, l_disc_, pred = sess.run([self.discriminator.train_op, self.discriminator.loss, self.discriminator.predictions], feed)
-                    l_disc += l_disc_
-                    acc_disc += np.mean(np.argmax(real_fake_labels[:batch_size], axis=1) == pred)
-                    feed = {self.discriminator.input_x: real_fake_captions[batch_size:],
-                            self.discriminator.input_y: real_fake_labels[batch_size:],
-                            self.discriminator.dropout_keep_prob: self.dis_dropout_keep_prob}
-                    _, l_disc_, pred = sess.run(
-                        [self.discriminator.train_op, self.discriminator.loss, self.discriminator.predictions], feed)
-                    l_disc += l_disc_
-                    acc_disc += np.mean(np.argmax(real_fake_labels[batch_size:], axis=1) == pred)
-                    #_ = sess.run(self.discriminator.params_clip, feed)
-                acc_disc /= 2
-                l_disc /= 2
+                    _, l_disc, pred = sess.run([self.discriminator.train_op, self.discriminator.loss, self.discriminator.predictions], feed)
+                    acc_disc = np.mean(np.argmax(real_fake_labels[:batch_size], axis=1) == pred)
+                    _ = sess.run(self.discriminator.params_clip, feed)
                 self.curr_disc_loss += l_disc
                 self.curr_disc_acc += acc_disc
                 # ---log

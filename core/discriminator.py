@@ -116,15 +116,15 @@ class Discriminator(object):
             if model == 'cnn':
                 self.build_cnn(filter_sizes, num_filters, embedding_size, sequence_length, num_classes, l2_reg_lambda=l2_reg_lambda)
             elif model == 'capsnet':
-                self.build_capsnet()
+                self.build_capsnet(mask_with_y=True, num_classes=num_classes, stddev=0.01, iter_routing=3, m_plus=0.9, m_minus=0.1, lambda_val=0.5, regularization_scale=0.392)
 
         self.params = [param for param in tf.trainable_variables() if 'discriminator' in param.name]
         if learning_rate:
             d_optimizer = tf.train.AdamOptimizer(learning_rate)
-            self.train_op = d_optimizer.minimize(self.loss)
-            #grads_and_vars = d_optimizer.compute_gradients(self.loss, self.params, aggregation_method=2)
-            #self.train_op = d_optimizer.apply_gradients(grads_and_vars)
-            #self.params_clip = [var.assign(tf.clip_by_value(var, -0.01, 0.01)) for var in self.params]
+            #self.train_op = d_optimizer.minimize(self.loss)
+            grads_and_vars = d_optimizer.compute_gradients(self.loss, self.params, aggregation_method=2)
+            self.train_op = d_optimizer.apply_gradients(grads_and_vars)
+            self.params_clip = [var.assign(tf.clip_by_value(var, -0.01, 0.01)) for var in self.params]
 
         # ---init
         self.prev_loss = -1
@@ -138,22 +138,27 @@ class Discriminator(object):
             self.saver.restore(sess=self.sess, save_path=os.path.join(pretrained_model, 'model.ckpt'))
         initialize_uninitialized(self.sess)
 
-    def build_capsnet(self, mask_with_y=True, stddev=0.01, iter_routing=3, m_plus=0.9, m_minus=0.1, lambda_val=0.5, regularization_scale=0.392):
+    def build_capsnet(self, num_classes=2, mask_with_y=True, stddev=0.01, iter_routing=3, m_plus=0.9, m_minus=0.1, lambda_val=0.5, regularization_scale=0.392):
+        self.embedded_chars_expanded = tf.squeeze(self.embedded_chars_expanded, -1)
+        print('self.embedded_chars_expanded', self.embedded_chars_expanded.shape)
         with tf.variable_scope('Conv1_layer'):
             # Conv1, return tensor with shape [batch_size, 20, 20, 256]
-            conv1 = tf.contrib.layers.conv2d(self.embedded_chars_expanded, num_outputs=256,
-                                             kernel_size=9, stride=1,
+            conv1 = tf.contrib.layers.conv1d(self.embedded_chars_expanded, num_outputs=16,
+                                             kernel_size=4, stride=2,
                                              padding='VALID')
+            print('conv1', conv1.shape)
 
         # Primary Capsules layer, return tensor with shape [batch_size, 1152, 8, 1]
         with tf.variable_scope('PrimaryCaps_layer'):
             primaryCaps = CapsLayer(num_outputs=8, batch_size=self.batch_size, stddev=stddev, iter_routing=iter_routing, vec_len=8, with_routing=False, layer_type='CONV')
-            caps1 = primaryCaps(conv1, kernel_size=9, stride=4)
+            caps1 = primaryCaps(conv1, kernel_size=4, stride=2)
+            print('caps1', caps1.shape)
 
         # DigitCaps layer, return shape [batch_size, 10, 16, 1]
         with tf.variable_scope('DigitCaps_layer'):
-            digitCaps = CapsLayer(num_outputs=2, batch_size=self.batch_size, stddev= stddev, iter_routing= iter_routing, vec_len=16, with_routing=True, layer_type='FC')
+            digitCaps = CapsLayer(num_outputs=num_classes, batch_size=self.batch_size, stddev= stddev, iter_routing= iter_routing, vec_len=16, with_routing=True, layer_type='FC')
             self.caps2 = digitCaps(caps1)
+            print('self.caps2', self.caps2.shape)
 
         # Decoder structure in Fig. 2
         # 1. Do masking, how:
@@ -186,7 +191,7 @@ class Discriminator(object):
                 assert self.masked_v.get_shape() == [self.batch_size, 1, 16, 1]
             # Method 2. masking with true label, default mode
             else:
-                self.masked_v = tf.multiply(tf.squeeze(self.caps2), tf.reshape(self.input_y, (-1, 2, 1)))
+                self.masked_v = tf.multiply(tf.squeeze(self.caps2), tf.reshape(self.input_y, (-1, num_classes, 1)))
                 self.v_length = tf.sqrt(reduce_sum(tf.square(self.caps2), axis=2, keepdims=True) + epsilon)
 
         # 2. Reconstructe the MNIST images with 3 FC layers
@@ -196,7 +201,7 @@ class Discriminator(object):
             fc1 = tf.contrib.layers.fully_connected(vector_j, num_outputs=512)
             fc2 = tf.contrib.layers.fully_connected(fc1, num_outputs=1024)
             self.decoded = tf.contrib.layers.fully_connected(fc2,
-                                                             num_outputs=self.embedded_chars_expanded.shape[1].value * self.embedded_chars_expanded.shape[2].value * self.embedded_chars_expanded.shape[3].value,
+                                                             num_outputs=self.embedded_chars_expanded.shape[1].value * self.embedded_chars_expanded.shape[2].value,
                                                              activation_fn=tf.sigmoid)
 
         # 1. The margin loss
@@ -206,7 +211,7 @@ class Discriminator(object):
         max_l = tf.square(tf.maximum(0., m_plus - self.v_length))
         # max_r = max(0, ||v_c||-m_minus)^2
         max_r = tf.square(tf.maximum(0., self.v_length - m_minus))
-        assert max_l.get_shape() == [self.batch_size, 2, 1, 1]
+        assert max_l.get_shape() == [self.batch_size, num_classes, 1, 1]
 
         # reshape: [batch_size, 10, 1, 1] => [batch_size, 10]
         max_l = tf.reshape(max_l, shape=(self.batch_size, -1))
@@ -297,18 +302,18 @@ class Discriminator(object):
             os.makedirs(model_path)
 
         # ---gen, disc: true captions and images to feed the generator and generate fake captions
-        n_examples = data['captions'].shape[0]
+        n_examples = data['captions'][:10000].shape[0]
         n_iters_per_epoch = int(np.floor(float(n_examples) / batch_size))
-        captions = data['captions']
-        emotions = data['emotions']
-        image_idxs = data['image_idxs']
-        image_file_names = data['image_files_names']
-        n_examples_val = val_data['captions'].shape[0]
+        captions = data['captions'][:10000]
+        emotions = data['emotions'][:10000]
+        image_idxs = data['image_idxs'][:10000]
+        image_file_names = data['image_files_names'][:10000]
+        n_examples_val = val_data['captions'][:5000].shape[0]
         n_iters_val = int(np.floor(float(n_examples_val) / batch_size))
-        captions_val = val_data['captions']
-        emotions_val = val_data['emotions']
-        image_idxs_val = val_data['image_idxs']
-        image_file_names_val= val_data['image_files_names']
+        captions_val = val_data['captions'][:5000]
+        emotions_val = val_data['emotions'][:5000]
+        image_idxs_val = val_data['image_idxs'][:5000]
+        image_file_names_val= val_data['image_files_names'][:5000]
 
         # ---log
         timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M")
@@ -355,23 +360,13 @@ class Discriminator(object):
                     idx = np.random.permutation(len(real_fake_labels))
                     real_fake_captions, real_fake_labels = real_fake_captions[idx], real_fake_labels[idx]
 
-                    acc = 0
-                    loss = 0
-                    #first batch
                     feed = {self.input_x: real_fake_captions[:self.batch_size], self.input_y: real_fake_labels[:self.batch_size],
                             self.dropout_keep_prob: dropout_keep_prob}
-                    _, loss_, pred = sess.run([self.train_op, self.loss, self.predictions], feed)
-                    loss += loss_
-                    acc += np.mean(np.argmax(real_fake_labels[:self.batch_size], axis=1) == pred)
-                    #second batch
-                    feed = {self.input_x: real_fake_captions[self.batch_size:], self.input_y: real_fake_labels[self.batch_size:],
-                            self.dropout_keep_prob: dropout_keep_prob}
-                    _, loss_, pred = sess.run([self.train_op, self.loss, self.predictions], feed)
-                    loss += loss_
-                    acc += np.mean(np.argmax(real_fake_labels[self.batch_size:], axis=1) == pred)
+                    _, loss, pred = sess.run([self.train_op, self.loss, self.predictions], feed)
+                    acc = np.mean(np.argmax(real_fake_labels[:self.batch_size], axis=1) == pred)
 
-                    accs.append(acc/2)
-                    losses.append(loss/2)
+                    accs.append(acc)
+                    losses.append(loss)
 
                 # ---log
                 if (i + 1) % log_every == 0:
@@ -382,8 +377,8 @@ class Discriminator(object):
                 self.curr_acc += accs
                 iters_bar.update()
                 iters_bar.set_description('Training: current loss/acc %f/%f%%' % (losses, accs*100))
-                log_iters_loss.add_row([e + 1, i + 1, accs])
-                log_iters_accuracy.add_row([e + 1, i + 1, losses])
+                log_iters_loss.add_row([e + 1, i + 1, losses])
+                log_iters_accuracy.add_row([e + 1, i + 1, accs])
             self.curr_loss /= n_iters_per_epoch
             self.curr_acc /= n_iters_per_epoch
             log_epoch_loss.add_row([e + 1, self.curr_loss])
@@ -428,10 +423,12 @@ class Discriminator(object):
             fake_labels = [[1, 0] for _ in fake_captions]
             real_labels = [[0, 1] for _ in real_captions]
             real_fake_labels = np.concatenate([real_labels, fake_labels], axis=0)
-            feed = {self.input_x: real_fake_captions, self.input_y: real_fake_labels,
+            idx = np.random.permutation(len(real_fake_labels))
+            real_fake_captions, real_fake_labels = real_fake_captions[idx], real_fake_labels[idx]
+            feed = {self.input_x: real_fake_captions[:batch_size], self.input_y: real_fake_labels[:batch_size],
                     self.dropout_keep_prob: dropout_keep_prob}
             loss, pred = sess.run([self.loss, self.predictions], feed)
-            acc = np.mean(np.argmax(real_fake_labels, axis=1) == pred)
+            acc = np.mean(np.argmax(real_fake_labels[:batch_size], axis=1) == pred)
             losses_val.append(loss)
             accs_val.append(acc)
             if verbose:

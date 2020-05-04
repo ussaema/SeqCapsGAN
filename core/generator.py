@@ -247,7 +247,7 @@ class Generator(object):
 
             if self.selector:
                 context, beta = self._selector(context, h, reuse=(t!=0))
-            context = tf.nn.dropout(context, 0.5) #TODO delete
+            context = tf.nn.dropout(context, 0.5)
 
             with tf.variable_scope('lstm', reuse=(t!=0)):
                 _, (c, h) = lstm_cell(inputs=tf.concat( [x[:,t,:], context, emotions],1), state=[c, h])
@@ -528,14 +528,13 @@ class Generator(object):
 
         sess = self.sess
 
-        emotions = np.array([[0,0,1], [0,1,0], [1,0,0]], dtype=np.int32);
-        image_file_names = np.array([image_path]*3)
+        emotions = np.array([[0,1,0], [1,0,0]], dtype=np.int32);
+        image_file_names = np.array([image_path]*2)
 
         features_batch = self.extract_features(sess, image_file_names)
         feed_dict = {self.features: features_batch, self.emotions: emotions}
         gen_caps = sess.run(self.generated_captions, feed_dict)
         decoded = decode_captions(gen_caps, self.idx_to_word)
         print('Image:', image_file_names[0])
-        print('Neutral description:', decoded[0])
-        print('Negative description:', decoded[1])
-        print('Positive description:', decoded[2])
+        print('Negative description:', decoded[0])
+        print('Positive description:', decoded[1])

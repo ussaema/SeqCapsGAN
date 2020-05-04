@@ -9,8 +9,6 @@ import argparse
 parser = argparse.ArgumentParser(description='Testing')
 
 parser.add_argument('--word_to_idx_dir', type=str, required=True)
-parser.add_argument('--test_senticap_data_dir', type=str, default='data/val_senticap_data.pkl')
-parser.add_argument('--test_coco_data_dir', type=str, default='data/val_coco_data.pkl')
 
 parser.add_argument('--image', type=str, required=True)
 parser.add_argument('--max_length', type=int, default=25)
@@ -34,7 +32,7 @@ def main():
     # generator network
     generator = Generator(sess, word_to_idx, dim_embed=512, dim_hidden=1024,
                           n_time_step=args.max_length, prev2out=True, ctx2out=True, emo2out=True, alpha_c=1.0,
-                          selector=True, dropout=True, features_extractor='vgg', update_rule='adam', pretrained_model=args.gan_load_model_dir)
+                          selector=True, dropout=True, features_extractor='vgg', update_rule='adam', pretrained_model=args.load_model_dir)
 
     generator.inference(args.image)
 

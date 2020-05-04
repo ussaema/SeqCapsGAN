@@ -26,8 +26,8 @@ Then, we train the models using [SentiCap Dataset](http://cm.cecs.anu.edu.au/pos
 - [x] SentiCap Dataset loader and build pre-processing engine
 - [x] Build CapsNet Discriminator
 - [x] Inference engine
-- [ ] Train and evaluate
-- [ ] Plots
+- [x] Train and evaluate
+- [x] Plots
 
 ### Train
 1. Run `./download.sh` and go to step 4, otherweise go to step 5.
@@ -39,8 +39,11 @@ Then, we train the models using [SentiCap Dataset](http://cm.cecs.anu.edu.au/pos
 7. Run `python train.py --gen_train --gen_save_model_dir ./model/generator/ --gen_dataset coco --batchsize 8 --gen_epochs 10` to pretrain the generator.
 8. Run `python train.py --disc_train --disc_network capsnet --gen_load_model_dir ./model/generator/ --disc_save_model_dir ./model/discriminator/ --disc_dataset coco --batchsize 8 --disc_epochs 10` to pretrain the discriminator.
 9. Run `python train.py --gan_train --disc_network capsnet --gen_load_model_dir ./model/generator/ --disc_load_model_dir ./model/discriminator/ --gan_save_model_dir ./model/gan/ --gan_dataset senticap --batchsize 8 --gan_epochs 10` to train the GAN. You can add the arguments `--gen_load_model_dir` and/or `--disc_load_model_dir` to initialize your model with a pretrained generator and/or discriminator.
-10. Run `python inference.py --word_to_idx_dir data/word_to_idx.pkl --image "test.jpg" --load_model_dir model/gan/` to describe an image.
 
 ### Test
+1. Run `python inference.py --word_to_idx_dir data/word_to_idx.pkl --image "test.jpg" --load_model_dir model/gan/` to describe an image.
 
 ### Results
+
+![results](./results/scores_captions.jpg)
+
